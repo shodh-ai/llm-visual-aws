@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Visualizer</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .table-rect {
+            fill: #2d2d2d;
+            stroke: #64ffda;
+            stroke-width: 2px;
+            transition: all 0.3s ease;
+        }
+        
+        .table-rect.highlight {
+            fill: #1a3e3a;
+            stroke: #ff6188;
+            stroke-width: 4px;
+            filter: drop-shadow(0 0 8px rgba(255, 97, 136, 0.5));
+        }
+        
+        .table-name {
+            fill: #64ffda;
+            text-anchor: middle;
+            font-weight: bold;
+            font-size: 14px;
+            pointer-events: none;
+        }
+        
+        .column {
+            fill: #fff;
+            text-anchor: middle;
+            font-size: 12px;
+            pointer-events: none;
+        }
+        
+        .relationship {
+            stroke: #ff6188;
+            stroke-width: 2px;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        
+        .node {
+            fill: #2d2d2d;
+            stroke: #64ffda;
+            stroke-width: 2px;
+            transition: stroke 0.3s, stroke-width 0.3s;
+        }
+        
+        .node-label {
+            fill: #fff;
+            text-anchor: middle;
+            font-size: 12px;
+            pointer-events: none;
+        }
+        
+        .link {
+            stroke: #ff6188;
+            stroke-width: 2px;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        
+        .connection-line {
+            stroke: #ff6188;
+            stroke-width: 3px;
+            stroke-dasharray: 5,5;
+            pointer-events: none;
+            animation: dash 20s linear infinite;
+        }
+        
+        @keyframes dash {
+            to {
+                stroke-dashoffset: 1000;
+            }
+        }
+        
+        .visualization {
+            width: 100%;
+            height: 600px;
+            background: #1e1e1e;
+        }
+        
+        .table-rect:hover {
+            stroke-width: 4px;
+            cursor: pointer;
+        }
+        
+        .node:hover {
+            stroke-width: 4px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 min-h-screen text-white">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-4xl font-bold mb-8 text-center text-teal-400">Database Visualizer</h1>
+        
+        <!-- Tab Navigation -->
+        <div class="mb-8">
+            <nav class="flex space-x-4 border-b border-gray-700" aria-label="Tabs">
+                <button id="schema-tab" 
+                        class="tab-button px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-teal-400 text-teal-400 bg-gray-800"
+                        aria-selected="true">
+                    Schema Design
+                </button>
+                <button id="parallel-tab" 
+                        class="tab-button px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-transparent text-gray-400 hover:text-teal-400 hover:border-teal-400"
+                        aria-selected="false">
+                    Parallel Architecture
+                </button>
+            </nav>
+        </div>
+        
+        <!-- Schema Tab Content -->
+        <div id="schema-content" class="tab-content">
+            <div class="mb-8">
+                <textarea id="schema-prompt" rows="4" class="w-full p-4 rounded-lg border border-teal-400 bg-gray-800 text-white focus:ring-2 focus:ring-teal-400" 
+                    placeholder="Example questions:
+- Show tables that need normalization
+- Identify tables with many-to-many relationships
+- Highlight tables involved in order processing"></textarea>
+                <div class="flex items-center mt-4 space-x-4">
+                    <button id="analyze-schema" class="px-6 py-2 bg-red-600 text-white rounded border border-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed uppercase text-sm">
+                        VISUALISE
+                    </button>
+                    <div id="schema-loading" class="hidden flex items-center">
+                        <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-400"></div>
+                        <span class="ml-2 text-teal-400">Analyzing schema...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-gray-800 rounded-lg shadow-lg p-4 border border-teal-400">
+                <h2 class="text-xl font-semibold mb-4 text-teal-400">Database Schema</h2>
+                <svg id="schema-viz" class="visualization rounded-lg overflow-hidden" width="100%" height="600"></svg>
+                <div id="schema-explanation" class="mt-4 p-4 bg-gray-700 rounded-lg hidden">
+                    <h3 class="text-lg font-medium mb-2 text-teal-400">Explanation</h3>
+                    <p class="text-gray-100 whitespace-pre-wrap"></p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Parallel Architecture Tab Content -->
+        <div id="parallel-content" class="tab-content hidden">
+            <div class="mb-8">
+                <textarea id="parallel-prompt" rows="4" class="w-full p-4 rounded-lg border border-teal-400 bg-gray-800 text-white focus:ring-2 focus:ring-teal-400" 
+                    placeholder="Example questions:
+- Show shared-nothing vs shared-disk architectures
+- Explain data partitioning strategies
+- Visualize query processing flow"></textarea>
+                <div class="flex items-center mt-4 space-x-4">
+                    <button id="analyze-parallel" class="px-6 py-2 bg-red-600 text-white rounded border border-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed uppercase text-sm">
+                        VISUALISE
+                    </button>
+                    <div id="parallel-loading" class="hidden flex items-center">
+                        <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-teal-400"></div>
+                        <span class="ml-2 text-teal-400">Analyzing architecture...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-gray-800 rounded-lg shadow-lg p-4 border border-teal-400">
+                <h2 class="text-xl font-semibold mb-4 text-teal-400">Parallel Database Architecture</h2>
+                <svg id="parallel-viz" class="visualization rounded-lg overflow-hidden" width="100%" height="600"></svg>
+                <div id="parallel-explanation" class="mt-4 p-4 bg-gray-700 rounded-lg hidden">
+                    <h3 class="text-lg font-medium mb-2 text-teal-400">Explanation</h3>
+                    <p class="text-gray-100 whitespace-pre-wrap"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
