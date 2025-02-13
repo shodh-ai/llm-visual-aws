@@ -3,25 +3,75 @@ export class ParallelDatabaseVisualizer {
         this.svg = d3.select(`#${svgId}`);
         this.width = parseInt(this.svg.style('width'));
         this.height = parseInt(this.svg.style('height'));
-        this.margin = { top: 50, right: 50, bottom: 50, left: 50 };
+        this.margin = { top: 80, right: 100, bottom: 80, left: 100 };
         
-        // Clear any existing content
+        this.initializeSVG();
+        // Initialize with shared-nothing architecture by default
+        this.drawSharedNothing();
+    }
+    
+    initializeSVG() {
         this.svg.selectAll('*').remove();
         
         // Initialize zoom behavior
         this.zoom = d3.zoom()
             .scaleExtent([0.5, 2])
             .on('zoom', (event) => {
-                this.svg.select('g').attr('transform', event.transform);
+                this.g.attr('transform', event.transform);
             });
         
         this.svg.call(this.zoom);
         
-        // Add main group for all elements
-        this.g = this.svg.append('g');
+        this.g = this.svg.append('g')
+            .attr('transform', `translate(${this.margin.left}, ${this.margin.top})`);
         
-        // Center the visualization
-        this.g.attr('transform', `translate(${this.margin.left}, ${this.margin.top})`);
+        this.nodesGroup = this.g.append('g').attr('class', 'nodes');
+        this.linksGroup = this.g.append('g').attr('class', 'links');
+        this.labelGroup = this.g.append('g').attr('class', 'labels');
+    }
+    
+    drawNodes(nodes) {
+        const nodeGroups = this.nodesGroup.selectAll('.node')
+            .data(nodes)
+            .join('g')
+            .attr('class', 'node')
+            .attr('data-id', d => d.id)
+            .attr('transform', d => `translate(${d.x}, ${d.y})`);
+        
+        // Background for better visibility
+        nodeGroups.append('circle')
+            .attr('class', 'node-bg')
+            .attr('r', d => d.type === 'storage' ? 45 : 35)
+            .attr('fill', '#1e1e1e');
+        
+        // Node circle
+        nodeGroups.append('circle')
+            .attr('class', d => `node-circle ${d.type}`)
+            .attr('r', d => d.type === 'storage' ? 40 : 30);
+        
+        // Node label with background
+        nodeGroups.append('text')
+            .attr('class', 'node-label')
+            .attr('dy', '.35em')
+            .attr('text-anchor', 'middle')
+            .text(d => d.label);
+    }
+    
+    drawLinks(nodes, links) {
+        const nodeMap = new Map(nodes.map(node => [node.id, node]));
+        
+        this.linksGroup.selectAll('.link')
+            .data(links)
+            .join('path')
+            .attr('class', 'link')
+            .attr('d', d => {
+                const source = nodeMap.get(d.source);
+                const target = nodeMap.get(d.target);
+                return `M ${source.x} ${source.y} 
+                        C ${source.x} ${(source.y + target.y)/2},
+                          ${target.x} ${(source.y + target.y)/2},
+                          ${target.x} ${target.y}`;
+            });
     }
     
     drawSharedNothing() {
@@ -33,9 +83,9 @@ export class ParallelDatabaseVisualizer {
             { id: 'node1', label: 'Node 1', type: 'compute', x: 100, y: 100 },
             { id: 'node2', label: 'Node 2', type: 'compute', x: 300, y: 100 },
             { id: 'node3', label: 'Node 3', type: 'compute', x: 500, y: 100 },
-            { id: 'disk1', label: 'Disk 1', type: 'storage', x: 100, y: 250 },
-            { id: 'disk2', label: 'Disk 2', type: 'storage', x: 300, y: 250 },
-            { id: 'disk3', label: 'Disk 3', type: 'storage', x: 500, y: 250 }
+            { id: 'disk1', label: 'Disk 1', type: 'storage', x: 100, y: 300 },
+            { id: 'disk2', label: 'Disk 2', type: 'storage', x: 300, y: 300 },
+            { id: 'disk3', label: 'Disk 3', type: 'storage', x: 500, y: 300 }
         ];
         
         // Define links between nodes and their dedicated storage
@@ -58,7 +108,7 @@ export class ParallelDatabaseVisualizer {
             { id: 'node1', label: 'Node 1', type: 'compute', x: 100, y: 100 },
             { id: 'node2', label: 'Node 2', type: 'compute', x: 300, y: 100 },
             { id: 'node3', label: 'Node 3', type: 'compute', x: 500, y: 100 },
-            { id: 'san', label: 'Shared Storage', type: 'storage', x: 300, y: 250 }
+            { id: 'san', label: 'Shared Storage', type: 'storage', x: 300, y: 300 }
         ];
         
         // Define links between all nodes and shared storage
@@ -71,43 +121,51 @@ export class ParallelDatabaseVisualizer {
         this.drawNodes(nodes);
         this.drawLinks(nodes, links);
     }
-    
-    drawNodes(nodes) {
-        // Draw compute nodes
-        const nodeGroups = this.g.selectAll('.node')
-            .data(nodes)
-            .join('g')
-            .attr('class', 'node')
-            .attr('transform', d => `translate(${d.x}, ${d.y})`);
-        
-        // Add node circles
-        nodeGroups.append('circle')
-            .attr('r', d => d.type === 'storage' ? 40 : 30)
-            .attr('class', d => `node-circle ${d.type}`);
-        
-        // Add node labels
-        nodeGroups.append('text')
-            .attr('class', 'node-label')
-            .attr('dy', '.35em')
-            .text(d => d.label);
+
+    reset() {
+        this.initializeSVG();
+        this.drawSharedNothing();
+    }
+
+    resize() {
+        this.width = parseInt(this.svg.style('width'));
+        this.height = parseInt(this.svg.style('height'));
+        this.reset();
     }
     
-    drawLinks(nodes, links) {
-        // Create a map of nodes by id for easy lookup
-        const nodeMap = new Map(nodes.map(node => [node.id, node]));
+    addLabel(x, y, text, isHighlighted = false) {
+        const label = this.labelGroup.append('g')
+            .attr('class', 'label-group')
+            .attr('transform', `translate(${x}, ${y})`);
+
+        const padding = 8;
+        const textNode = label.append('text')
+            .attr('class', isHighlighted ? 'highlight-annotation' : 'label')
+            .text(text);
         
-        // Draw links between nodes
-        this.g.selectAll('.link')
-            .data(links)
-            .join('line')
-            .attr('class', 'link')
-            .attr('x1', d => nodeMap.get(d.source).x)
-            .attr('y1', d => nodeMap.get(d.source).y)
-            .attr('x2', d => nodeMap.get(d.target).x)
-            .attr('y2', d => nodeMap.get(d.target).y);
+        const bbox = textNode.node().getBBox();
+        
+        label.insert('rect', 'text')
+            .attr('x', bbox.x - padding)
+            .attr('y', bbox.y - padding)
+            .attr('width', bbox.width + 2 * padding)
+            .attr('height', bbox.height + 2 * padding)
+            .attr('rx', 4)
+            .attr('ry', 4)
+            .attr('class', isHighlighted ? 'highlight-annotation-bg' : 'label-bg');
+
+        return bbox;
     }
-    
+
     animate(instructions) {
+        if (!instructions) return;
+        
+        this.labelGroup.selectAll('*').remove();
+        
+        // Clear existing visualization
+        this.initializeSVG();
+        
+        // Draw appropriate architecture
         if (instructions.type === 'shared-nothing') {
             this.drawSharedNothing();
         } else if (instructions.type === 'shared-disk') {
@@ -116,14 +174,14 @@ export class ParallelDatabaseVisualizer {
         
         // Highlight specific nodes or connections based on instructions
         if (instructions.highlight) {
-            instructions.highlight.forEach(id => {
-                this.g.selectAll('.node')
-                    .filter(d => d.id === id)
-                    .select('circle')
-                    .transition()
-                    .duration(500)
-                    .style('stroke', '#ff6188')
-                    .style('stroke-width', '4px');
+            instructions.highlight.forEach((id) => {
+                const node = this.g.select(`[data-id="${id}"]`);
+                if (!node.empty()) {
+                    node.select('.node-circle')
+                        .classed('highlight', true)
+                        .transition()
+                        .duration(500);
+                }
             });
         }
     }
