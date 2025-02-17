@@ -1,3 +1,4 @@
+#app.py
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,7 @@ from pathlib import Path
 import tempfile
 from typing import Dict, List, Optional, Union
 from datetime import datetime
+from flask import jsonify
 
 logging.basicConfig(level=logging.INFO)
 load_dotenv()
@@ -159,7 +161,7 @@ def generate_word_timings(text: str, audio_duration: int) -> List[WordTiming]:
 @app.get("/api/visualization/{topic}", response_model=VisualizationData, tags=["Visualization"])
 async def get_visualization(topic: str):
     """Get visualization data and JavaScript code for a specific topic"""
-    if topic not in ['schema', 'parallel_db']:
+    if topic not in ['schema', 'parallel_db', 'entity', 'attribute']:
         raise HTTPException(status_code=400, detail="Invalid topic")
     
     try:
@@ -175,7 +177,7 @@ async def get_visualization(topic: str):
 async def generate_narration(topic: str):
     """Generate narration for a specific topic"""
     try:
-        if topic not in ['schema', 'parallel_db']:
+        if topic not in ['schema', 'parallel_db', 'entity', 'attribute']:
             raise HTTPException(status_code=400, detail="Invalid topic")
 
         # Load the narration script
@@ -238,7 +240,7 @@ async def serve_audio(filename: str):
 def get_highlights(topic: str, timestamp: int):
     """Get component highlights for a specific timestamp"""
     try:
-        if topic not in ['schema', 'parallel_db']:
+        if topic not in ['schema', 'parallel_db', 'entity', 'attribute']:
             return jsonify({'error': 'Invalid topic'}), 400
 
         # Load narration script to get component mappings and word timings
@@ -279,11 +281,11 @@ def get_highlights(topic: str, timestamp: int):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
 
 
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

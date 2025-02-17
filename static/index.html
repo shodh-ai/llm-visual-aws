@@ -27,6 +27,8 @@
         <select id="topic-selector">
             <option value="parallel_db">Parallel Database</option>
             <option value="schema">Schema</option>
+            <option value="entity">Entity</option>
+            <option value="attribute">Attribute</option>
         </select>
     </div>
     <div id="visualization-container"></div>
@@ -41,17 +43,62 @@
                 const container = document.getElementById('visualization-container');
                 container.innerHTML = '';
 
-                // Create a script element with the received JavaScript code
-                const scriptElement = document.createElement('script');
-                scriptElement.textContent = data.js_code;
-                document.body.appendChild(scriptElement);
+                if (data.js_code) {
+                    // Remove any previously added script
+                    const oldScript = document.getElementById('visualization-script');
+                    if (oldScript) {
+                        oldScript.remove();
+                    }
 
-                // Call the visualization function with the data
-                if (topic === 'parallel_db') {
-                    createParallelDBVisualization(data);
-                } else if (topic === 'schema') {
-                    createSchemaVisualization(data);
+                    // Create a script element with the received JavaScript code
+                    const scriptElement = document.createElement('script');
+                    scriptElement.id = 'visualization-script';
+                    
+                    // Combined handling for entity and attribute visualizations
+                    if (topic === 'entity' || topic === 'attribute') {
+                        scriptElement.textContent = `
+                            ${data.js_code}
+                            // Ensure the function is in global scope
+                            window.${topic === 'entity' ? 'createEntityVisualization' : 'createAttributeVisualization'} = ${topic === 'entity' ? 'createEntityVisualization' : 'createAttributeVisualization'};
+                        `;
+                    } else {
+                        scriptElement.textContent = data.js_code;
+                    }
+                    
+                    // Add script to document
+                    document.body.appendChild(scriptElement);
                 }
+
+                // Wait a short moment for the script to load
+                setTimeout(() => {
+                    // Call the visualization function with the data
+                    if (topic === 'parallel_db') {
+                        if (typeof createParallelDBVisualization === 'function') {
+                            createParallelDBVisualization(data);
+                        } else {
+                            throw new Error('Parallel DB visualization function not loaded');
+                        }
+                    } else if (topic === 'schema') {
+                        if (typeof createSchemaVisualization === 'function') {
+                            createSchemaVisualization(data);
+                        } else {
+                            throw new Error('Schema visualization function not loaded');
+                        }
+                    } else if (topic === 'entity') {
+                        if (typeof createEntityVisualization === 'function') {
+                            createEntityVisualization(data);
+                        } else {
+                            throw new Error('Entity visualization function not loaded');
+                        }
+                    } else if (topic === 'attribute') {
+                        if (typeof createAttributeVisualization === 'function') {
+                            createAttributeVisualization(data);
+                        } else {
+                            throw new Error('Attribute visualization function not loaded');
+                        }
+                    }
+                }, 100);
+
             } catch (error) {
                 console.error('Error loading visualization:', error);
                 document.getElementById('visualization-container').innerHTML = 
