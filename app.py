@@ -54,12 +54,18 @@ class Property(BaseModel):
     isPrimary: bool = False
     isForeign: bool = False
 
+class NodeProperty(BaseModel):
+    name: str
+    type: str
+
 class VisualizationNode(BaseModel):
     id: str
     name: str
     type: Optional[str] = None
-    properties: Optional[List[str]] = None
+    properties: Optional[Union[List[str], List[NodeProperty]]] = None
     columns: Optional[List[Property]] = None
+    attributes: Optional[List[dict]] = None
+    document: Optional[dict] = None
 
 class VisualizationEdge(BaseModel):
     source: str
@@ -67,10 +73,14 @@ class VisualizationEdge(BaseModel):
     type: str
     description: Optional[str] = None
 
+class VisualizationRequest(BaseModel):
+    topic: str
+
 class VisualizationData(BaseModel):
     nodes: List[VisualizationNode]
     edges: List[VisualizationEdge]
     js_code: Optional[str] = None
+    topic: str
 
 class WordTiming(BaseModel):
     word: str
@@ -107,6 +117,14 @@ def load_visualization_data(topic: str) -> VisualizationData:
                 'name': n['name'],
                 'columns': [Property(**col) for col in n['columns']]
             }
+        elif topic == 'er':
+            # For ER visualization, include attributes
+            node_data = {
+                'id': n['id'],
+                'name': n['name'],
+                'type': n.get('type'),
+                'attributes': n.get('attributes', [])
+            }
         else:
             # For parallel_db and other visualizations, use properties as is
             node_data = {
@@ -120,7 +138,8 @@ def load_visualization_data(topic: str) -> VisualizationData:
     return VisualizationData(
         nodes=nodes,
         edges=[VisualizationEdge(**e) for e in data['edges']],
-        js_code=js_code
+        js_code=js_code,
+        topic=topic
     )
 
 def load_narration_script(topic: str) -> Dict:
@@ -156,14 +175,15 @@ def generate_word_timings(text: str, audio_duration: int) -> List[WordTiming]:
     
     return timings
 
-@app.get("/api/visualization/{topic}", response_model=VisualizationData, tags=["Visualization"])
-async def get_visualization(topic: str):
+@app.post("/api/visualization", response_model=VisualizationData, tags=["Visualization"])
+async def get_visualization(request: VisualizationRequest):
     """Get visualization data and JavaScript code for a specific topic"""
-    if topic not in ['schema', 'parallel_db']:
-        raise HTTPException(status_code=400, detail="Invalid topic")
+    valid_topics = ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml']
+    if request.topic not in valid_topics:
+        raise HTTPException(status_code=400, detail=f"Invalid topic. Must be one of: {', '.join(valid_topics)}")
     
     try:
-        data = load_visualization_data(topic)
+        data = load_visualization_data(request.topic)
         return data
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Visualization data not found")
@@ -175,7 +195,7 @@ async def get_visualization(topic: str):
 async def generate_narration(topic: str):
     """Generate narration for a specific topic"""
     try:
-        if topic not in ['schema', 'parallel_db']:
+        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml']:
             raise HTTPException(status_code=400, detail="Invalid topic")
 
         # Load the narration script
@@ -238,7 +258,7 @@ async def serve_audio(filename: str):
 def get_highlights(topic: str, timestamp: int):
     """Get component highlights for a specific timestamp"""
     try:
-        if topic not in ['schema', 'parallel_db']:
+        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml']:
             return jsonify({'error': 'Invalid topic'}), 400
 
         # Load narration script to get component mappings and word timings

@@ -5,20 +5,49 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Database Visualization</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="/static/js/hierarchical_visualization.js"></script>
+    <script src="/static/js/network_visualization.js"></script>
+    <script src="/static/js/er_visualization.js"></script>
+    <script src="/static/js/document_visualization.js"></script>
+    <script src="/static/js/history_visualization.js"></script>
+    <script src="/static/js/xml_visualization.js"></script>
     <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8fafc;
+        }
         #visualization-container {
-            width: 800px;
-            height: 600px;
-            border: 1px solid #ccc;
+            width: 90vw;
+            height: 80vh;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
             margin: 20px auto;
+            background-color: white;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
         }
         .controls {
             text-align: center;
             margin: 20px;
         }
         select {
-            padding: 8px;
+            padding: 10px 20px;
             font-size: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background-color: white;
+            color: #1e293b;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        select:hover {
+            border-color: #94a3b8;
+        }
+        select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
     </style>
 </head>
@@ -27,6 +56,12 @@
         <select id="topic-selector">
             <option value="parallel_db">Parallel Database</option>
             <option value="schema">Schema</option>
+            <option value="hierarchical">Hierarchical Model</option>
+            <option value="network">Network Model</option>
+            <option value="er">ER Model</option>
+            <option value="document">Document Model</option>
+            <option value="history">Historical Evolution</option>
+            <option value="xml">XML Database Management</option>
         </select>
     </div>
     <div id="visualization-container"></div>
@@ -34,7 +69,13 @@
     <script>
         async function loadVisualization(topic) {
             try {
-                const response = await fetch(`http://localhost:8000/api/visualization/${topic}`);
+                const response = await fetch('/api/visualization', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ topic })
+                });
                 const data = await response.json();
                 
                 // Clear previous visualization
@@ -51,6 +92,18 @@
                     createParallelDBVisualization(data);
                 } else if (topic === 'schema') {
                     createSchemaVisualization(data);
+                } else if (topic === 'hierarchical') {
+                    createHierarchicalVisualization(data);
+                } else if (topic === 'network') {
+                    createNetworkVisualization(data);
+                } else if (topic === 'er') {
+                    createERVisualization(data);
+                } else if (topic === 'document') {
+                    createDocumentVisualization(data);
+                } else if (topic === 'history') {
+                    createHistoryVisualization(data);
+                } else if (topic === 'xml') {
+                    createXMLVisualization(data);
                 }
             } catch (error) {
                 console.error('Error loading visualization:', error);
