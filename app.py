@@ -79,8 +79,9 @@ class VisualizationRequest(BaseModel):
 class VisualizationData(BaseModel):
     nodes: List[VisualizationNode]
     edges: List[VisualizationEdge]
-    js_code: Optional[str] = None
+    jsx_code: str
     topic: str
+    narration: Optional[str] = None
 
 class WordTiming(BaseModel):
     word: str
@@ -95,17 +96,17 @@ class NarrationData(BaseModel):
     script: str
 
 def load_visualization_data(topic: str) -> VisualizationData:
-    """Load visualization data and JavaScript code for a specific topic"""
+    """Load visualization data and JSX code for a specific topic"""
     data_path = Path('static/data') / f'{topic}_visualization.json'
-    js_path = Path('static/js') / f'{topic}_visualization.js'
+    jsx_path = Path('static/js') / f'{topic}Visualization.jsx'
     
     with open(data_path) as f:
         data = json.load(f)
     
-    js_code = ""
-    if js_path.exists():
-        with open(js_path) as f:
-            js_code = f.read()
+    jsx_code = ""
+    if jsx_path.exists():
+        with open(jsx_path) as f:
+            jsx_code = f.read()
     
     # Process nodes based on topic type
     nodes = []
@@ -138,7 +139,7 @@ def load_visualization_data(topic: str) -> VisualizationData:
     return VisualizationData(
         nodes=nodes,
         edges=[VisualizationEdge(**e) for e in data['edges']],
-        js_code=js_code,
+        jsx_code=jsx_code,
         topic=topic
     )
 
@@ -177,19 +178,63 @@ def generate_word_timings(text: str, audio_duration: int) -> List[WordTiming]:
 
 @app.post("/api/visualization", response_model=VisualizationData, tags=["Visualization"])
 async def get_visualization(request: VisualizationRequest):
-    """Get visualization data and JavaScript code for a specific topic"""
+    """Get visualization data, JSX code, and narration for a specific topic"""
+    logging.info(f"Received visualization request for topic: {request.topic}")
+    
     valid_topics = ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml']
     if request.topic not in valid_topics:
-        raise HTTPException(status_code=400, detail=f"Invalid topic. Must be one of: {', '.join(valid_topics)}")
+        error_msg = f"Invalid topic '{request.topic}'. Must be one of: {', '.join(valid_topics)}"
+        logging.error(error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
     
     try:
+        # Load visualization data
         data = load_visualization_data(request.topic)
-        return data
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Visualization data not found")
+        
+        # Load JSX code
+        jsx_path = Path('src/components') / f'{request.topic.capitalize()}Visualization.jsx'
+        if not jsx_path.exists():
+            jsx_path = Path('static/js') / f'{request.topic}Visualization.jsx'
+        
+        if not jsx_path.exists():
+            error_msg = f"JSX code not found for topic '{request.topic}'"
+            logging.error(error_msg)
+            raise HTTPException(status_code=404, detail=error_msg)
+        
+        with open(jsx_path) as f:
+            jsx_code = f.read()
+            
+        # Load narration text
+        narration = None
+        try:
+            script_data = load_narration_script(request.topic)
+            narration = script_data.get('script', '')
+            logging.info(f"Successfully loaded narration for topic: {request.topic}")
+        except FileNotFoundError:
+            logging.warning(f"No narration script found for topic: {request.topic}")
+        except Exception as e:
+            logging.error(f"Error loading narration for topic {request.topic}: {str(e)}")
+        
+        # Create response with data, JSX code, and narration
+        response_data = VisualizationData(
+            nodes=data.nodes,
+            edges=data.edges,
+            jsx_code=jsx_code,
+            topic=request.topic,
+            narration=narration
+        )
+        
+        logging.info(f"Successfully loaded visualization data and JSX code for topic: {request.topic}")
+        return response_data
+        
+    except FileNotFoundError as e:
+        error_msg = f"Visualization data not found for topic '{request.topic}': {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(status_code=404, detail=error_msg)
     except Exception as e:
-        logging.error(f"Error loading visualization: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        error_msg = f"Error loading visualization for topic '{request.topic}': {str(e)}"
+        logging.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @app.post("/api/narration/{topic}", response_model=NarrationData, tags=["Narration"])
 async def generate_narration(topic: str):
