@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
 import HierarchicalVisualization from './HierarchicalVisualization';
-
+import RelationalVisualization from './RelationalVisualization';
 const App = () => {
     const [topic, setTopic] = useState('');
     const [data, setData] = useState(null);
@@ -62,6 +62,8 @@ const App = () => {
                 return <DocumentVisualization {...props} />;
             case 'hierarchical':
                 return <HierarchicalVisualization {...props} />;
+            case 'relational':
+                return <RelationalVisualization {...props} />;
             default:
                 return <div>Visualization type not supported yet</div>;
         }
@@ -75,6 +77,7 @@ const App = () => {
                     <option value="er">Entity-Relationship Model</option>
                     <option value="document">Document Model</option>
                     <option value="hierarchical">Hierarchical Model</option>
+                    <option value="relational">Relational Model</option>
                 </select>
             </div>
             <div className="content-container">
