@@ -1,18 +1,12 @@
 # Database Schema and Architecture Visualizer
 
-An interactive web application that helps visualize and understand MBA course contents.
-
-## Features
-
-### Schema Design Visualization
-### Parallel Architecture Visualization
-### AI-Powered Analysis
+An interactive React-based web application that provides multiple visualizations for understanding database concepts, including Entity-Relationship models, Document models, and Hierarchical structures.
 
 ## Prerequisites
 
 - Python 3.8 or higher
-- Node.js and npm (for frontend dependencies)
-- Anthropic API key
+- Node.js 16+ and npm
+- Anthropic API key (for AI narration)
 
 ## Setup
 
@@ -29,64 +23,74 @@ An interactive web application that helps visualize and understand MBA course co
 
 3. Install JavaScript dependencies:
    ```bash
-   # Install npm if you haven't already
+   npm install
    ```
 
 4. Set up environment variables:
    - Create a `.env` file in the project root
-   - Add your Anthropic API key:
+   - Add your API keys:
      ```
      ANTHROPIC_API_KEY=your_api_key_here
      ```
 
-5. Run the application:
+5. Start the development servers:
    ```bash
+   # Terminal 1: Start the FastAPI backend
    python app.py
+
+   # Terminal 2: Start the Vite development server
+   npm run dev
    ```
 
 ## Usage
 
 1. Access the application:
-   - Open `http://localhost:5000` in your browser
-   - The application works best in Chrome or Firefox
+   - Open `http://localhost:5174` in your browser
 
-2. Schema Design Tab:
-   - View the default e-commerce database schema
-   - Ask questions like:
-     - "Show tables involved in order processing"
-     - "Identify tables that need normalization"
-     - "Show relationships between Orders and Products"
-
-3. Parallel Architecture Tab:
-   - Explore different database architectures
-   - Ask questions like:
-     - "How does shared-nothing architecture work?"
-     - "Explain data distribution in shared-disk architecture"
-     - "Show query processing flow"
+2. Select a visualization type:
+   - Entity-Relationship Model: Explore database schema relationships
+   - Document Model: Understand document-based database structures
+   - Hierarchical Model: Visualize tree-based data organizations
+   - Add more ***
 
 ## Project Structure
 
 ```
 llm_visual/
-├── app.py                 # Flask application
+├── src/                  # React source code
+│   ├── components/       # React components
+│   │   ├── App.jsx
+│   │   ├── ERVisualization.jsx
+│   │   ├── DocumentVisualization.jsx
+│   │   └── HierarchicalVisualization.jsx
+│   └── index.jsx         # React entry point
+├── app.py               # FastAPI backend
 ├── static/
-│   ├── js/
-│   │   ├── main.js       # Main JavaScript
-│   │   ├── database_visualizer.js    # Schema visualization
-│   │   └── parallel_visualizer.js    # Architecture visualization
-├── templates/
-│   └── index.html        # Main HTML template
-└── requirements.txt      # Python dependencies
+│   ├── data/            # Visualization data
+│   │   ├── er_visualization.json
+│   │   ├── document_visualization.json
+│   │   └── hierarchical_visualization.json
+│   └── dist/            # Production build output
+├── vite.config.js       # Vite configuration
+├── package.json         # npm dependencies
+└── requirements.txt     # Python dependencies
 ```
 
 ## Technologies Used
 
 ### Backend
-- Flask: Web framework
+- FastAPI: Modern, fast web framework
 - Python: Server-side logic
-- Anthropic Claude API: AI analysis
+- Anthropic Claude API: AI-powered narration
 
 ### Frontend
+- React: UI framework
 - D3.js: Interactive visualizations
-- Tailwind CSS: Styling
-- JavaScript: Client-side logic
+- Vite: Build tool and development server
+
+### Data Visualization
+- Interactive node-link diagrams
+- Force-directed layouts
+- Hierarchical tree layouts
+- Zoom and pan capabilities
+

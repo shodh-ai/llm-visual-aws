@@ -1,0 +1,125 @@
+{
+    "nodes": [
+        {
+            "id": "users",
+            "name": "Users Collection",
+            "type": "collection",
+            "document": {
+                "_id": "ObjectId('507f1f77bcf86cd799439011')",
+                "username": "johndoe",
+                "email": "john@example.com",
+                "profile": {
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "age": 30,
+                    "address": {
+                        "street": "123 Main St",
+                        "city": "San Francisco",
+                        "state": "CA",
+                        "zip": "94105"
+                    }
+                },
+                "interests": ["coding", "hiking", "photography"],
+                "joinDate": "ISODate('2023-01-15')"
+            }
+        },
+        {
+            "id": "orders",
+            "name": "Orders Collection",
+            "type": "collection",
+            "document": {
+                "_id": "ObjectId('507f1f77bcf86cd799439012')",
+                "userId": "ObjectId('507f1f77bcf86cd799439011')",
+                "orderDate": "ISODate('2023-06-20')",
+                "status": "completed",
+                "items": [
+                    {
+                        "productId": "ObjectId('507f1f77bcf86cd799439013')",
+                        "name": "Laptop",
+                        "quantity": 1,
+                        "price": 999.99,
+                        "specs": {
+                            "brand": "TechCo",
+                            "model": "Pro X",
+                            "year": 2023
+                        }
+                    },
+                    {
+                        "productId": "ObjectId('507f1f77bcf86cd799439014')",
+                        "name": "Mouse",
+                        "quantity": 2,
+                        "price": 29.99
+                    }
+                ],
+                "total": 1059.97,
+                "shipping": {
+                    "method": "express",
+                    "address": {
+                        "street": "123 Main St",
+                        "city": "San Francisco",
+                        "state": "CA",
+                        "zip": "94105"
+                    },
+                    "tracking": "1Z999AA1234567890"
+                }
+            }
+        },
+        {
+            "id": "products",
+            "name": "Products Collection",
+            "type": "collection",
+            "document": {
+                "_id": "ObjectId('507f1f77bcf86cd799439013')",
+                "name": "Laptop",
+                "category": "Electronics",
+                "price": 999.99,
+                "specs": {
+                    "brand": "TechCo",
+                    "model": "Pro X",
+                    "year": 2023,
+                    "details": {
+                        "cpu": "Intel i7",
+                        "ram": "16GB",
+                        "storage": "512GB SSD"
+                    }
+                },
+                "reviews": [
+                    {
+                        "userId": "ObjectId('507f1f77bcf86cd799439011')",
+                        "rating": 5,
+                        "comment": "Great laptop!",
+                        "date": "ISODate('2023-07-01')"
+                    }
+                ],
+                "tags": ["laptop", "electronics", "computers"],
+                "inventory": {
+                    "inStock": 50,
+                    "warehouse": {
+                        "id": "WH001",
+                        "location": "San Jose"
+                    }
+                }
+            }
+        }
+    ],
+    "edges": [
+        {
+            "source": "orders",
+            "target": "users",
+            "type": "reference",
+            "description": "userId -> _id"
+        },
+        {
+            "source": "orders",
+            "target": "products",
+            "type": "reference",
+            "description": "items.productId -> _id"
+        },
+        {
+            "source": "products",
+            "target": "users",
+            "type": "reference",
+            "description": "reviews.userId -> _id"
+        }
+    ]
+}
