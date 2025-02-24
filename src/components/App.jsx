@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
 import HierarchicalVisualization from './HierarchicalVisualization';
+import NormalFormVisualization from './NormalizationVisualization';
 
 const App = () => {
     const [topic, setTopic] = useState('');
@@ -62,6 +63,8 @@ const App = () => {
                 return <DocumentVisualization {...props} />;
             case 'hierarchical':
                 return <HierarchicalVisualization {...props} />;
+            case 'normalization':
+                return <NormalFormVisualization {...props} />;
             default:
                 return <div>Visualization type not supported yet</div>;
         }
@@ -75,6 +78,7 @@ const App = () => {
                     <option value="er">Entity-Relationship Model</option>
                     <option value="document">Document Model</option>
                     <option value="hierarchical">Hierarchical Model</option>
+                    <option value="normalization">Normal Form Visualization</option>
                 </select>
             </div>
             <div className="content-container">
