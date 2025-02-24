@@ -1,5 +1,5 @@
-import React from 'react';
-import * as d3 from 'd3';
+// import React from 'react';
+// import * as d3 from 'd3';
 
 const HierarchicalVisualization = ({ data, onNodeClick }) => {
     const containerRef = React.useRef(null);
@@ -183,4 +183,4 @@ const HierarchicalVisualization = ({ data, onNodeClick }) => {
 // Assign to global variable so it's accessible
 window.HierarchicalVisualization = HierarchicalVisualization;
 
-export default HierarchicalVisualization;
+// export default HierarchicalVisualization;
