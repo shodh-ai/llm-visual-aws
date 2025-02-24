@@ -4,6 +4,7 @@ import DocumentVisualization from './DocumentVisualization';
 import HierarchicalVisualization from './HierarchicalVisualization';
 import RelationalQueryVisualization from './RelationalqueryVisualization';
 import NormalFormVisualization from './NormalizationVisualization';
+import QueryProcessingVisualization from './QueryprocessingVisualization';
 
 
 const App = () => {
@@ -69,6 +70,8 @@ const App = () => {
                 return <RelationalQueryVisualization {...props} />; 
             case 'normalization':
                 return <NormalFormVisualization {...props} />;
+            case 'queryprocessing':
+                return <QueryProcessingVisualization {...props} />;
             default:
                 return <div>Visualization type not supported yet</div>;
         }
@@ -86,6 +89,8 @@ const App = () => {
                     <option value="relationalQuery">Relational Query Language</option> 
 
                     <option value="normalization">Normal Form Visualization</option>
+
+                    <option value="queryprocessing">Query Processing Visualization</option>
 
                 </select>
             </div>
