@@ -1,7 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import HierarchicalVisualization from './HierarchicalVisualization';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
-import HierarchicalVisualization from './HierarchicalVisualization';
+
+const VISUALIZATIONS = {
+    'hierarchical': HierarchicalVisualization,
+    'er': ERVisualization,
+    'document': DocumentVisualization
+};
 
 const App = () => {
     const [topic, setTopic] = useState('');
@@ -25,12 +31,19 @@ const App = () => {
             }
             return response.json();
         })
-        .then(data => setData(data))
+        .then(responseData => {
+            setData({
+                nodes: responseData.nodes,
+                edges: responseData.edges,
+                narration: responseData.narration
+            });
+        })
         .catch(error => {
             console.error('Error loading visualization:', error);
             setData(null);
         });
     }, [topic]);
+
 
     const handleTopicChange = (e) => {
         setTopic(e.target.value);
@@ -47,24 +60,23 @@ const App = () => {
     };
 
     const renderVisualization = () => {
-        if (!data) return null;
+        if (!data || !topic) return null;
+
+        const VisualizationComponent = VISUALIZATIONS[topic];
+        if (!VisualizationComponent) {
+            return <div>Visualization type not supported</div>;
+        }
 
         const props = {
-            data,
+            data: {
+                nodes: data.nodes,
+                edges: data.edges
+            },
             onNodeClick: handleNodeClick,
             ref: visualizationRef
         };
 
-        switch (topic) {
-            case 'er':
-                return <ERVisualization {...props} />;
-            case 'document':
-                return <DocumentVisualization {...props} />;
-            case 'hierarchical':
-                return <HierarchicalVisualization {...props} />;
-            default:
-                return <div>Visualization type not supported yet</div>;
-        }
+        return <VisualizationComponent {...props} />;
     };
 
     return (
@@ -72,6 +84,7 @@ const App = () => {
             <div className="controls">
                 <select value={topic} onChange={handleTopicChange}>
                     <option value="">Select a visualization</option>
+                    <option value="test">Test Visualization</option>
                     <option value="er">Entity-Relationship Model</option>
                     <option value="document">Document Model</option>
                     <option value="hierarchical">Hierarchical Model</option>
