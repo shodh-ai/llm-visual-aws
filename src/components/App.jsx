@@ -5,6 +5,7 @@ import DocumentVisualization from './DocumentVisualization';
 import RelationalQueryVisualization from './RelationalqueryVisualization';
 import NormalFormVisualization from './NormalizationVisualization';
 import ActiveDBVisualization from './ActivedbVisualization';
+import QueryProcessingVisualization from './QueryprocessingVisualization';
 
 const VISUALIZATIONS = {
     'hierarchical': HierarchicalVisualization,
@@ -12,7 +13,8 @@ const VISUALIZATIONS = {
     'document': DocumentVisualization,
     'relationalQuery': RelationalQueryVisualization,
     'normalization': NormalFormVisualization,
-    'activedb': ActiveDBVisualization
+    'activedb': ActiveDBVisualization,
+    'queryprocessing': QueryProcessingVisualization
 };
 
 
@@ -97,7 +99,7 @@ const App = () => {
                     <option value="relationalQuery">Relational Query Language</option> 
                     <option value="normalization">Normal Form Visualization</option>
                     <option value="activedb">Active Database Visualization</option>
-
+                    <option value="queryprocessing">Query Processing Visualization</option>
                 </select>
             </div>
             <div className="content-container">
