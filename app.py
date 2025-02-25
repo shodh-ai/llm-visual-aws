@@ -338,10 +338,9 @@ async def serve_audio(filename: str):
 def get_highlights(topic: str, timestamp: int):
     """Get component highlights for a specific timestamp"""
     try:
-
         if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'relational','relationalQuery', 'normalization', 'activedb', 'queryprocessing']:
             return JSONResponse(status_code=400, content={'error': 'Invalid topic'})
-
+          
         # Load narration script to get component mappings and word timings
         script_data = load_narration_script(topic)
         component_mappings = script_data.get('component_mappings', {})
