@@ -4,13 +4,17 @@ import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
 import RelationalQueryVisualization from './RelationalqueryVisualization';
 import NormalFormVisualization from './NormalizationVisualization';
+import ActiveDBVisualization from './ActivedbVisualization';
+import QueryProcessingVisualization from './QueryprocessingVisualization';
 
 const VISUALIZATIONS = {
     'hierarchical': HierarchicalVisualization,
     'er': ERVisualization,
     'document': DocumentVisualization,
     'relationalQuery': RelationalQueryVisualization,
-    'normalization': NormalFormVisualization
+    'normalization': NormalFormVisualization,
+    'activedb': ActiveDBVisualization,
+    'queryprocessing': QueryProcessingVisualization
 };
 
 
@@ -89,15 +93,13 @@ const App = () => {
             <div className="controls">
                 <select value={topic} onChange={handleTopicChange}>
                     <option value="">Select a visualization</option>
-                    <option value="test">Test Visualization</option>
                     <option value="er">Entity-Relationship Model</option>
                     <option value="document">Document Model</option>
                     <option value="hierarchical">Hierarchical Model</option>
-
                     <option value="relationalQuery">Relational Query Language</option> 
-
                     <option value="normalization">Normal Form Visualization</option>
-
+                    <option value="activedb">Active Database Visualization</option>
+                    <option value="queryprocessing">Query Processing Visualization</option>
                 </select>
             </div>
             <div className="content-container">
