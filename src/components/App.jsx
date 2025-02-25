@@ -1,8 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import HierarchicalVisualization from './HierarchicalVisualization';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
-import HierarchicalVisualization from './HierarchicalVisualization';
-import RelationalVisualization from './RelationalVisualization';
+import RelationalQueryVisualization from './RelationalqueryVisualization';
+import NormalFormVisualization from './NormalizationVisualization';
+import ActiveDBVisualization from './ActivedbVisualization';
+import QueryProcessingVisualization from './QueryprocessingVisualization';
+
+const VISUALIZATIONS = {
+    'hierarchical': HierarchicalVisualization,
+    'er': ERVisualization,
+    'document': DocumentVisualization,
+    'relationalQuery': RelationalQueryVisualization,
+    'normalization': NormalFormVisualization,
+    'activedb': ActiveDBVisualization,
+    'queryprocessing': QueryProcessingVisualization
+};
+
+
 const App = () => {
     const [topic, setTopic] = useState('');
     const [data, setData] = useState(null);
@@ -25,12 +40,19 @@ const App = () => {
             }
             return response.json();
         })
-        .then(data => setData(data))
+        .then(responseData => {
+            setData({
+                nodes: responseData.nodes,
+                edges: responseData.edges,
+                narration: responseData.narration
+            });
+        })
         .catch(error => {
             console.error('Error loading visualization:', error);
             setData(null);
         });
     }, [topic]);
+
 
     const handleTopicChange = (e) => {
         setTopic(e.target.value);
@@ -47,26 +69,23 @@ const App = () => {
     };
 
     const renderVisualization = () => {
-        if (!data) return null;
+        if (!data || !topic) return null;
+
+        const VisualizationComponent = VISUALIZATIONS[topic];
+        if (!VisualizationComponent) {
+            return <div>Visualization type not supported</div>;
+        }
 
         const props = {
-            data,
+            data: {
+                nodes: data.nodes,
+                edges: data.edges
+            },
             onNodeClick: handleNodeClick,
             ref: visualizationRef
         };
 
-        switch (topic) {
-            case 'er':
-                return <ERVisualization {...props} />;
-            case 'document':
-                return <DocumentVisualization {...props} />;
-            case 'hierarchical':
-                return <HierarchicalVisualization {...props} />;
-            case 'relational':
-                return <RelationalVisualization {...props} />;
-            default:
-                return <div>Visualization type not supported yet</div>;
-        }
+        return <VisualizationComponent {...props} />;
     };
 
     return (
@@ -77,7 +96,10 @@ const App = () => {
                     <option value="er">Entity-Relationship Model</option>
                     <option value="document">Document Model</option>
                     <option value="hierarchical">Hierarchical Model</option>
-                    <option value="relational">Relational Model</option>
+                    <option value="relationalQuery">Relational Query Language</option> 
+                    <option value="normalization">Normal Form Visualization</option>
+                    <option value="activedb">Active Database Visualization</option>
+                    <option value="queryprocessing">Query Processing Visualization</option>
                 </select>
             </div>
             <div className="content-container">
