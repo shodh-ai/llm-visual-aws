@@ -2,12 +2,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import HierarchicalVisualization from './HierarchicalVisualization';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
+import RelationalQueryVisualization from './RelationalqueryVisualization';
+import NormalFormVisualization from './NormalizationVisualization';
 
 const VISUALIZATIONS = {
     'hierarchical': HierarchicalVisualization,
     'er': ERVisualization,
-    'document': DocumentVisualization
+    'document': DocumentVisualization,
+    'relationalQuery': RelationalQueryVisualization,
+    'normalization': NormalFormVisualization
 };
+
 
 const App = () => {
     const [topic, setTopic] = useState('');
@@ -88,6 +93,11 @@ const App = () => {
                     <option value="er">Entity-Relationship Model</option>
                     <option value="document">Document Model</option>
                     <option value="hierarchical">Hierarchical Model</option>
+
+                    <option value="relationalQuery">Relational Query Language</option> 
+
+                    <option value="normalization">Normal Form Visualization</option>
+
                 </select>
             </div>
             <div className="content-container">

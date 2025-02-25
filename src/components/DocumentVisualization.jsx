@@ -1,5 +1,5 @@
-// import React from 'react';
-// import * as d3 from 'd3';
+import React from 'react';
+import * as d3 from 'd3';
 
 const DocumentVisualization = ({ data, onNodeClick }) => {
     const containerRef = React.useRef(null);
@@ -284,4 +284,4 @@ const DocumentVisualization = ({ data, onNodeClick }) => {
 // Assign to global variable so it's accessible
 window.DocumentVisualization = DocumentVisualization;
 
-// export default DocumentVisualization;   
+export default DocumentVisualization;

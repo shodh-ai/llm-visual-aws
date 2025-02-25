@@ -1,5 +1,5 @@
-// import React from 'react';
-// import * as d3 from 'd3';
+import React from 'react';
+import * as d3 from 'd3';
 
 const ERVisualization = ({ data, onNodeClick }) => {
     const containerRef = React.useRef(null);
@@ -244,4 +244,4 @@ const ERVisualization = ({ data, onNodeClick }) => {
 // Assign to global variable so it's accessible
 window.ERVisualization = ERVisualization;
 
-// export default ERVisualization;
+export default ERVisualization;
