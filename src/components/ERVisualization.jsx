@@ -1,10 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import * as d3 from 'd3';
 
 const ERVisualization = ({ data, onNodeClick }) => {
-    const containerRef = useRef(null);
-
-    useEffect(() => {
+    const containerRef = React.useRef(null);
+    React.useEffect(() => {
         // Validate input data
         if (!containerRef.current || !data || !data.nodes || !Array.isArray(data.nodes) || 
             data.nodes.length === 0 || !data.edges || !Array.isArray(data.edges)) {
@@ -236,13 +235,13 @@ const ERVisualization = ({ data, onNodeClick }) => {
         };
     }, [data, onNodeClick]); // Re-run effect when data or onNodeClick changes
 
-    return (
-        <div 
-            ref={containerRef}
-            className="visualization-container"
-            style={{ width: '100%', height: '100%' }}
-        />
-    );
+    return React.createElement("div", { 
+        ref: containerRef, 
+        style: { width: "100%", height: "100%" } 
+    });
 };
+
+// Assign to global variable so it's accessible
+window.ERVisualization = ERVisualization;
 
 export default ERVisualization;

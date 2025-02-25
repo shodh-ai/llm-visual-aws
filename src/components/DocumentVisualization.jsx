@@ -1,8 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import * as d3 from 'd3';
 
 const DocumentVisualization = ({ data, onNodeClick }) => {
-    const containerRef = useRef(null);
+    const containerRef = React.useRef(null);
 
     // Function to calculate collection height based on document content
     const calculateCollectionHeight = (document, level = 0) => {
@@ -97,7 +97,7 @@ const DocumentVisualization = ({ data, onNodeClick }) => {
         return y;
     };
 
-    useEffect(() => {
+    React.useEffect(() => {
         if (!containerRef.current || !data || !data.nodes) return;
 
         // Constants
@@ -275,13 +275,13 @@ const DocumentVisualization = ({ data, onNodeClick }) => {
         };
     }, [data, onNodeClick]); // Re-run effect when data or onNodeClick changes
 
-    return (
-        <div 
-            ref={containerRef}
-            className="visualization-container"
-            style={{ width: '100%', height: '100%' }}
-        />
-    );
+    return React.createElement("div", { 
+        ref: containerRef, 
+        style: { width: "100%", height: "100%" } 
+    });
 };
+
+// Assign to global variable so it's accessible
+window.DocumentVisualization = DocumentVisualization;
 
 export default DocumentVisualization;
