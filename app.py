@@ -41,8 +41,8 @@ async def read_root():
         return f.read()
 
 # Initialize API clients
-# openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
-# anthropic_client = Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
+openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+anthropic_client = Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
 
 # Create directory for audio files
 AUDIO_DIR = Path('static/audio')
