@@ -206,6 +206,39 @@ async def get_visualization(request: VisualizationRequest):
         with open(jsx_path) as f:
             jsx_code = f.read()
             
+            # For test visualization, use a simple component
+            if request.topic == 'test':
+                jsx_code = '''
+                (props) => {
+                    const { data } = props;
+                    return React.createElement(
+                        "div",
+                        { 
+                            style: { 
+                                width: "100%", 
+                                height: "100%", 
+                                display: "flex",
+                                justifyContent: "center",
+                                alignItems: "center",
+                                fontSize: "24px",
+                                color: "#4299e1"
+                            }
+                        },
+                        `${data.nodes.length} Nodes and ${data.edges.length} Edges`
+                    );
+                }
+                '''.strip()
+            else:
+                # Extract the component definition for other components
+                import re
+                component_match = re.search(r'const\s+\w+\s*=\s*\(\s*props\s*\)\s*=>\s*{([^}]+)}', jsx_code)
+                if component_match:
+                    # Get the component body and clean it up
+                    component_body = component_match.group(1).strip()
+                    # Remove any return statement if present
+                    component_body = re.sub(r'^\s*return\s+', '', component_body)
+                    jsx_code = component_body
+            
         # Load narration text
         narration = None
         try:
@@ -221,7 +254,7 @@ async def get_visualization(request: VisualizationRequest):
         response_data = VisualizationData(
             nodes=data.nodes,
             edges=data.edges,
-            jsx_code=jsx_code,
+            jsx_code=jsx_code,  # Now contains just the component's render logic
             topic=request.topic,
             narration=narration
         )
@@ -307,7 +340,6 @@ def get_highlights(topic: str, timestamp: int):
     try:
         if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts']:
             return JSONResponse(status_code=400, content={'error': 'Invalid topic'})
-
         # Load narration script to get component mappings and word timings
         script_data = load_narration_script(topic)
         component_mappings = script_data.get('component_mappings', {})

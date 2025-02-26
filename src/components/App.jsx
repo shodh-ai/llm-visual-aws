@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import HierarchicalVisualization from './HierarchicalVisualization';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
 import HierarchicalVisualization from './HierarchicalVisualization';
@@ -32,12 +33,19 @@ const App = () => {
             }
             return response.json();
         })
-        .then(data => setData(data))
+        .then(responseData => {
+            setData({
+                nodes: responseData.nodes,
+                edges: responseData.edges,
+                narration: responseData.narration
+            });
+        })
         .catch(error => {
             console.error('Error loading visualization:', error);
             setData(null);
         });
     }, [topic]);
+
 
     const handleTopicChange = (e) => {
         setTopic(e.target.value);
@@ -54,10 +62,18 @@ const App = () => {
     };
 
     const renderVisualization = () => {
-        if (!data) return null;
+        if (!data || !topic) return null;
+
+        const VisualizationComponent = VISUALIZATIONS[topic];
+        if (!VisualizationComponent) {
+            return <div>Visualization type not supported</div>;
+        }
 
         const props = {
-            data,
+            data: {
+                nodes: data.nodes,
+                edges: data.edges
+            },
             onNodeClick: handleNodeClick,
             ref: visualizationRef
         };
