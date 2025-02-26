@@ -2,6 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
 import HierarchicalVisualization from './HierarchicalVisualization';
+import EntityVisualization from './EntityVisualization';
+import AttributeVisualization from './AttributeVisualization';
+import SharedMemoryVisualization from './Shared_memoryVisualization';
+import SharedDiskVisualization from './Shared_diskVisualization';
+import SharedNothingVisualization from './Shared_nothingVisualization';
+import DistributedDatabaseVisualization from './Distributed_databaseVisualization';
+import OOPConceptsVisualization from './Oop_conceptsVisualization';
 
 const App = () => {
     const [topic, setTopic] = useState('');
@@ -62,6 +69,20 @@ const App = () => {
                 return <DocumentVisualization {...props} />;
             case 'hierarchical':
                 return <HierarchicalVisualization {...props} />;
+            case 'entity':
+                return <EntityVisualization {...props} />;
+            case 'attribute':
+                return <AttributeVisualization {...props} />;
+            case 'shared_memory':
+                return <SharedMemoryVisualization {...props} />;
+            case 'shared_disk':
+                return <SharedDiskVisualization {...props} />;
+            case 'shared_nothing':
+                return <SharedNothingVisualization {...props} />;
+            case 'distributed_database':
+                return <DistributedDatabaseVisualization {...props} />;
+            case 'oop_concepts':
+                return <OOPConceptsVisualization {...props} />;
             default:
                 return <div>Visualization type not supported yet</div>;
         }
@@ -75,6 +96,13 @@ const App = () => {
                     <option value="er">Entity-Relationship Model</option>
                     <option value="document">Document Model</option>
                     <option value="hierarchical">Hierarchical Model</option>
+                    <option value="entity">Entity Model</option>
+                    <option value="attribute">Attribute Model</option>
+                    <option value="shared_memory">Shared Memory Model</option>
+                    <option value="shared_disk">Shared Disk Model</option>
+                    <option value="shared_nothing">Shared Nothing Model</option>
+                    <option value="distributed_database">Distributed Database Model</option>
+                    <option value="oop_concepts">OOP Concepts Model</option>
                 </select>
             </div>
             <div className="content-container">
