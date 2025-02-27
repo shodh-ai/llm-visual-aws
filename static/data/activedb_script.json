@@ -1,0 +1,20 @@
+{
+    "script": "Let me explain the differences between traditional and active databases and what are triggers and  how they enhance database functionality. Traditional databases are designed primarily as passive data repositories: users or applications must manually execute operations like updates, insertions, or deletions. In contrast, active databases are built to be proactive. They incorporate triggers, rules, and automated actions that respond immediately to events without manual intervention. When a specific event occurs – for example, when a new record is inserted or data is modified – an active database automatically checks defined conditions and executes corresponding actions. This is known as the Event-Condition-Action (ECA) paradigm. Active databases consist of several key components: an event monitoring system that detects changes, a rule system that defines the conditions under which actions should be executed, and an action execution system that carries out the predefined operations. The types of rules can include assertion rules that maintain data integrity, production rules that enable expert system functionalities, and the widely used ECA rules. These features not only ensure greater consistency and reliability but also make active databases ideal for real-time applications such as fraud detection, e-commerce, and healthcare systems. In summary, active databases represent an evolution over traditional systems by embedding intelligence directly into the data management layer, thereby automating routine tasks and providing a more dynamic, responsive system.",
+    "component_mappings": {
+      "active": "active_db",
+      "active database": "active_db",
+      "traditional": "manual_db",
+      "traditional database": "manual_db",
+      "trigger": "trigger",
+      "triggers": "trigger",
+      "rules": "rules",
+      "event": "event",
+      "events": "event",
+      "action": "action",
+      "actions": "action",
+      "components": "components",
+      "features": "features",
+      "applications": "applications"
+    }
+  }
+  
