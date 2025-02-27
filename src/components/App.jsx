@@ -7,6 +7,8 @@ import NormalFormVisualization from './NormalizationVisualization';
 import ActiveDBVisualization from './ActivedbVisualization';
 import QueryProcessingVisualization from './QueryprocessingVisualization';
 import MobiledbVisualization from './MobiledbVisualization';
+import GISVisualization from './GisVisualization';
+
 
 const VISUALIZATIONS = {
     'hierarchical': HierarchicalVisualization,
@@ -17,6 +19,7 @@ const VISUALIZATIONS = {
     'activedb': ActiveDBVisualization,
     'queryprocessing': QueryProcessingVisualization,
     'mobiledb': MobiledbVisualization
+    'gis' : GISVisualization
 };
 
 
@@ -103,6 +106,7 @@ const App = () => {
                     <option value="activedb">Active Database Visualization</option>
                     <option value="queryprocessing">Query Processing Visualization</option>
                     <option value="mobiledb">Mobile Database Visualization</option>
+                    <option value="gis">GISVisualization</option>
                 </select>
             </div>
             <div className="content-container">
