@@ -183,7 +183,12 @@ async def get_visualization(request: VisualizationRequest):
     """Get visualization data, JSX code, and narration for a specific topic"""
     logging.info(f"Received visualization request for topic: {request.topic}")
     
-    valid_topics = ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts']
+    valid_topics = [
+        'schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 
+        'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 
+        'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 
+        'mobiledb', 'gis']
+    
     if request.topic not in valid_topics:
         error_msg = f"Invalid topic '{request.topic}'. Must be one of: {', '.join(valid_topics)}"
         logging.error(error_msg)
@@ -275,8 +280,8 @@ async def get_visualization(request: VisualizationRequest):
 async def generate_narration(topic: str):
     """Generate narration for a specific topic"""
     try:
-        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts']:
-            raise HTTPException(status_code=400, detail="Invalid topic")
+        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 'mobiledb', 'gis']:            
+          raise HTTPException(status_code=400, detail="Invalid topic")
 
         # Load the narration script
         script_data = load_narration_script(topic)
@@ -338,7 +343,8 @@ async def serve_audio(filename: str):
 def get_highlights(topic: str, timestamp: int):
     """Get component highlights for a specific timestamp"""
     try:
-        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts']:
+        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 'mobiledb', 'gis']:
+
             return JSONResponse(status_code=400, content={'error': 'Invalid topic'})
         # Load narration script to get component mappings and word timings
         script_data = load_narration_script(topic)

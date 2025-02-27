@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
+
 import HierarchicalVisualization from './HierarchicalVisualization';
 import EntityVisualization from './EntityVisualization';
 import AttributeVisualization from './AttributeVisualization';
@@ -9,6 +10,12 @@ import SharedDiskVisualization from './Shared_diskVisualization';
 import SharedNothingVisualization from './Shared_nothingVisualization';
 import DistributedDatabaseVisualization from './Distributed_databaseVisualization';
 import OOPConceptsVisualization from './Oop_conceptsVisualization';
+import RelationalQueryVisualization from './RelationalqueryVisualization';
+import NormalFormVisualization from './NormalizationVisualization';
+import ActiveDBVisualization from './ActivedbVisualization';
+import QueryProcessingVisualization from './QueryprocessingVisualization';
+import MobiledbVisualization from './MobiledbVisualization';
+import GISVisualization from './GisVisualization';
 
 // Define the VISUALIZATIONS object
 const VISUALIZATIONS = {
@@ -21,7 +28,13 @@ const VISUALIZATIONS = {
     shared_disk: SharedDiskVisualization,
     shared_nothing: SharedNothingVisualization,
     distributed_database: DistributedDatabaseVisualization,
-    oop_concepts: OOPConceptsVisualization
+    oop_concepts: OOPConceptsVisualization,
+    relationalQuery: RelationalQueryVisualization,
+    normalization: NormalFormVisualization,
+    activedb: ActiveDBVisualization,
+    queryprocessing: QueryProcessingVisualization,
+    mobiledb: MobiledbVisualization,
+    gis: GISVisualization
 };
 
 const App = () => {
@@ -109,6 +122,14 @@ const App = () => {
                     <option value="shared_nothing">Shared Nothing Model</option>
                     <option value="distributed_database">Distributed Database Model</option>
                     <option value="oop_concepts">OOP Concepts Model</option>
+
+                    <option value="relationalQuery">Relational Query Language</option> 
+                    <option value="normalization">Normal Form Visualization</option>
+                    <option value="activedb">Active Database Visualization</option>
+                    <option value="queryprocessing">Query Processing Visualization</option>
+                    <option value="mobiledb">Mobile Database Visualization</option>
+                    <option value="gis">GISVisualization</option>
+
                 </select>
             </div>
             <div className="content-container">
