@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import HierarchicalVisualization from './HierarchicalVisualization';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
 import HierarchicalVisualization from './HierarchicalVisualization';
@@ -10,6 +9,20 @@ import SharedDiskVisualization from './Shared_diskVisualization';
 import SharedNothingVisualization from './Shared_nothingVisualization';
 import DistributedDatabaseVisualization from './Distributed_databaseVisualization';
 import OOPConceptsVisualization from './Oop_conceptsVisualization';
+
+// Define the VISUALIZATIONS object
+const VISUALIZATIONS = {
+    er: ERVisualization,
+    document: DocumentVisualization,
+    hierarchical: HierarchicalVisualization,
+    entity: EntityVisualization,
+    attribute: AttributeVisualization,
+    shared_memory: SharedMemoryVisualization,
+    shared_disk: SharedDiskVisualization,
+    shared_nothing: SharedNothingVisualization,
+    distributed_database: DistributedDatabaseVisualization,
+    oop_concepts: OOPConceptsVisualization
+};
 
 const App = () => {
     const [topic, setTopic] = useState('');
@@ -78,30 +91,7 @@ const App = () => {
             ref: visualizationRef
         };
 
-        switch (topic) {
-            case 'er':
-                return <ERVisualization {...props} />;
-            case 'document':
-                return <DocumentVisualization {...props} />;
-            case 'hierarchical':
-                return <HierarchicalVisualization {...props} />;
-            case 'entity':
-                return <EntityVisualization {...props} />;
-            case 'attribute':
-                return <AttributeVisualization {...props} />;
-            case 'shared_memory':
-                return <SharedMemoryVisualization {...props} />;
-            case 'shared_disk':
-                return <SharedDiskVisualization {...props} />;
-            case 'shared_nothing':
-                return <SharedNothingVisualization {...props} />;
-            case 'distributed_database':
-                return <DistributedDatabaseVisualization {...props} />;
-            case 'oop_concepts':
-                return <OOPConceptsVisualization {...props} />;
-            default:
-                return <div>Visualization type not supported yet</div>;
-        }
+        return <VisualizationComponent {...props} />;
     };
 
     return (
