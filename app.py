@@ -1,3 +1,4 @@
+#app.py
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,7 @@ from pathlib import Path
 import tempfile
 from typing import Dict, List, Optional, Union
 from datetime import datetime
+from flask import jsonify
 
 logging.basicConfig(level=logging.INFO)
 load_dotenv()
@@ -98,7 +100,7 @@ class NarrationData(BaseModel):
 def load_visualization_data(topic: str) -> VisualizationData:
     """Load visualization data and JSX code for a specific topic"""
     data_path = Path('static/data') / f'{topic}_visualization.json'
-    jsx_path = Path('static/js') / f'{topic}Visualization.jsx'
+    jsx_path = Path('src/components') / f'{topic}Visualization.jsx'
     
     with open(data_path) as f:
         data = json.load(f)
@@ -181,9 +183,12 @@ async def get_visualization(request: VisualizationRequest):
     """Get visualization data, JSX code, and narration for a specific topic"""
     logging.info(f"Received visualization request for topic: {request.topic}")
     
-    valid_topics = ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'relational','relationalQuery', "normalization", "activedb", "queryprocessing", "mobiledb", "gis"]
-
-
+    valid_topics = [
+        'schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 
+        'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 
+        'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 
+        'mobiledb', 'gis']
+    
     if request.topic not in valid_topics:
         error_msg = f"Invalid topic '{request.topic}'. Must be one of: {', '.join(valid_topics)}"
         logging.error(error_msg)
@@ -275,10 +280,8 @@ async def get_visualization(request: VisualizationRequest):
 async def generate_narration(topic: str):
     """Generate narration for a specific topic"""
     try:
-        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'relational','relationalQuery', "normalization", "activedb", "queryprocessing", "mobiledb", "gis"]:
-
-
-            raise HTTPException(status_code=400, detail="Invalid topic")
+        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 'mobiledb', 'gis']:            
+          raise HTTPException(status_code=400, detail="Invalid topic")
 
         # Load the narration script
         script_data = load_narration_script(topic)
@@ -340,10 +343,9 @@ async def serve_audio(filename: str):
 def get_highlights(topic: str, timestamp: int):
     """Get component highlights for a specific timestamp"""
     try:
-        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'relational','relationalQuery', 'normalization', 'activedb', 'queryprocessing', 'mobiledb', 'gis']:
+        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 'mobiledb', 'gis']:
 
             return JSONResponse(status_code=400, content={'error': 'Invalid topic'})
-          
         # Load narration script to get component mappings and word timings
         script_data = load_narration_script(topic)
         component_mappings = script_data.get('component_mappings', {})
@@ -382,11 +384,11 @@ def get_highlights(topic: str, timestamp: int):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
 
 
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

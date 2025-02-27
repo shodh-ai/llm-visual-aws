@@ -19,5 +19,18 @@
     "eslint": "^8.56.0",
     "eslint-config-standard": "^17.1.0",
     "vite": "^5.0.12"
-  }
+  },
+  "main": "server.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shodh-ai/llm-visual.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/shodh-ai/llm-visual/issues"
+  },
+  "homepage": "https://github.com/shodh-ai/llm-visual#readme"
 }
