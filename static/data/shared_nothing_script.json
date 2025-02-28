@@ -1,0 +1,15 @@
+{
+    "script": "Let's explore the shared nothing architecture, a distributed computing model where each node operates independently.\n\n1. Each processing unit consists of a 'CPU' and its corresponding 'Private Memory'. Unlike shared architectures, there is no direct memory sharing between nodes.\n\n2. Each CPU is directly linked to its own dedicated 'DISK' storage, ensuring data locality and reducing contention.\n\n3. The CPUs communicate through an 'Interconnection Network', which facilitates message passing between nodes rather than shared data access.\n\n4. This architecture is highly scalable as new nodes (each with its own CPU, memory, and disk) can be added seamlessly without major modifications.\n\n5. The shared nothing approach is widely used in large-scale distributed databases and web-scale applications due to its fault tolerance and parallel processing capabilities.\n\nThrough this visualization, we can understand how independent nodes operate and communicate efficiently in a shared nothing system.",
+    "component_mappings": {
+        "memory1": "private memory",
+        "memory2": "private memory",
+        "memory3": "private memory",
+        "cpu1": "CPU",
+        "cpu2": "CPU",
+        "cpu3": "CPU",
+        "network": "interconnection network",
+        "disk1": "private disk",
+        "disk2": "private disk",
+        "disk3": "private disk"
+    }
+}
