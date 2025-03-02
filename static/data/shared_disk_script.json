@@ -13,5 +13,49 @@
         "disk1": "shared disk",
         "disk2": "shared disk",
         "disk3": "shared disk"
-    }
+    },
+    "word_timings": [
+        {
+            "word": "shared disk architecture",
+            "start_time": 0,
+            "end_time": 3000,
+            "node_id": null
+        },
+        {
+            "word": "private memory",
+            "start_time": 3000,
+            "end_time": 6000,
+            "node_id": ["memory1", "memory2", "memory3", "memory4"]
+        },
+        {
+            "word": "CPUs",
+            "start_time": 6000,
+            "end_time": 9000,
+            "node_id": ["cpu1", "cpu2", "cpu3", "cpu4"]
+        },
+        {
+            "word": "Interconnection Network",
+            "start_time": 9000,
+            "end_time": 12000,
+            "node_id": "network"
+        },
+        {
+            "word": "shared storage",
+            "start_time": 12000,
+            "end_time": 15000,
+            "node_id": ["disk1", "disk2", "disk3"]
+        },
+        {
+            "word": "data transfer",
+            "start_time": 15000,
+            "end_time": 18000,
+            "node_id": ["network", "disk1", "disk2", "disk3"]
+        },
+        {
+            "word": "parallel processing",
+            "start_time": 18000,
+            "end_time": 21000,
+            "node_id": ["cpu1", "cpu2", "cpu3", "cpu4", "network"]
+        }
+    ]
 }

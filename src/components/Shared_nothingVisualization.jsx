@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 
-const SharedNothingVisualization = ({ data }) => {
+const SharedNothingVisualization = ({ data, highlightedElements }) => {
   const containerRef = useRef(null);
   const simulationRef = useRef(null);
 
@@ -20,6 +20,56 @@ const SharedNothingVisualization = ({ data }) => {
       }
     };
   }, [data]);
+
+  // Effect for handling highlights
+  useEffect(() => {
+    if (!containerRef.current || !highlightedElements) return;
+
+    const svg = d3.select(containerRef.current).select('svg');
+    
+    // Reset all highlights
+    svg.selectAll('.node')
+      .style('opacity', 1)
+      .selectAll('rect, path, ellipse')
+      .style('stroke-width', '1.5px')
+      .style('filter', null);
+
+    svg.selectAll('.connection')
+      .style('stroke-width', '1.5px')
+      .style('opacity', 0.6);
+
+    // Apply new highlights
+    if (highlightedElements.length > 0) {
+      // Dim non-highlighted nodes
+      svg.selectAll('.node')
+        .style('opacity', 0.3);
+
+      svg.selectAll('.connection')
+        .style('opacity', 0.2);
+
+      // Highlight selected nodes
+      highlightedElements.forEach(highlight => {
+        const node = svg.select(`.node[data-id="${highlight.id}"]`);
+        if (!node.empty()) {
+          // Highlight the node
+          node.style('opacity', 1)
+            .raise()
+            .selectAll('rect, path, ellipse')
+            .style('stroke-width', '3px')
+            .style('filter', 'drop-shadow(0 0 4px rgba(74, 222, 128, 0.5))');
+
+          // Highlight connected edges
+          svg.selectAll('.connection')
+            .filter(function(d) {
+              return d.source.id === highlight.id || d.target.id === highlight.id;
+            })
+            .style('stroke-width', '2px')
+            .style('opacity', 0.8)
+            .raise();
+        }
+      });
+    }
+  }, [highlightedElements]);
 
   return (
     <div 
@@ -177,6 +227,7 @@ const createVisualization = (data, containerElement) => {
     .data(data.nodes)
     .join('g')
     .attr('class', d => `node ${d.type}`)
+    .attr('data-id', d => d.id)
     .call(d3.drag()
       .on('start', dragstarted)
       .on('drag', dragged)

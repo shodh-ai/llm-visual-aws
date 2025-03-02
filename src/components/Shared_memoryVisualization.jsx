@@ -1,19 +1,22 @@
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 
-const SharedMemoryVisualization = ({ data }) => {
+const SharedMemoryVisualization = ({ data, highlightedElements }) => {
   const containerRef = useRef(null);
+  const svgRef = useRef(null);
   const simulationRef = useRef(null);
 
+  // Effect for creating the base visualization
   useEffect(() => {
-    if (!containerRef.current || !data) return;
+    if (!containerRef.current || !data?.nodes) return;
     
     // Clear any previous visualization
     d3.select(containerRef.current).selectAll('*').remove();
     
-    // Create visualization
-    simulationRef.current = createVisualization(data, containerRef.current);
-    
+    // Create base visualization
+    createVisualization(data, containerRef.current, svgRef, simulationRef);
+
+    // Cleanup
     return () => {
       if (simulationRef.current) {
         simulationRef.current.stop();
@@ -21,307 +24,295 @@ const SharedMemoryVisualization = ({ data }) => {
     };
   }, [data]);
 
+  // Effect for handling highlights
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const svg = d3.select(svgRef.current);
+
+    // Reset all highlights first
+    svg.selectAll('.node')
+      .transition()
+      .duration(300)
+      .style('filter', null)
+      .select('rect')
+      .style('stroke', '#2d3748')
+      .style('stroke-width', '2px');
+
+    svg.selectAll('.connection')
+      .transition()
+      .duration(300)
+      .style('stroke', '#4a5568')
+      .style('stroke-width', '2px')
+      .style('stroke-opacity', 0.6);
+
+    // Apply new highlights if any
+    if (highlightedElements && highlightedElements.length > 0) {
+      highlightedElements.forEach(element => {
+        // Try to find the node by ID
+        let node = svg.select(`.node[data-node-id="${element.id}"]`);
+        
+        // If not found, try to find by name (for backwards compatibility)
+        if (node.empty()) {
+          const nodeName = element.id.toUpperCase();
+          node = svg.selectAll('.node').filter(function(d) {
+            return d.name === nodeName || d.type === element.id;
+          });
+        }
+
+        if (!node.empty()) {
+          node.raise(); // Bring highlighted nodes to front
+          node.transition()
+            .duration(300)
+            .select('rect')
+            .style('stroke', '#4299e1')
+            .style('stroke-width', '3px')
+            .style('filter', 'drop-shadow(0 0 5px rgba(66, 153, 225, 0.5))');
+
+          // Highlight connected edges with updated styling
+          svg.selectAll('.connection')
+            .filter(function() {
+              const path = d3.select(this);
+              const sourceId = path.attr('data-source');
+              const targetId = path.attr('data-target');
+              const nodeId = node.attr('data-node-id');
+              return sourceId === nodeId || targetId === nodeId;
+            })
+            .transition()
+            .duration(300)
+            .style('stroke', '#4299e1')
+            .style('stroke-width', '3px')
+            .style('stroke-opacity', 0.8);
+        }
+      });
+    }
+  }, [highlightedElements]);
+
   return (
     <div 
-      id="visualization-container" 
-      ref={containerRef} 
-      style={{ width: '100%', height: '100%', border: '1px solid #eaeaea' }}
+      ref={containerRef}
+      style={{ 
+        width: '100%', 
+        height: '500px',
+        border: '1px solid #eaeaea',
+        position: 'relative',
+        overflow: 'hidden'
+      }}
     />
   );
 };
 
-const createVisualization = (data, containerElement) => {
+const createVisualization = (data, containerElement, svgRef, simulationRef) => {
   // Get container dimensions
   const container = d3.select(containerElement);
   const width = container.node().clientWidth;
   const height = container.node().clientHeight;
   
-  // Create SVG
+  // Create SVG with responsive sizing
   const svg = container.append('svg')
-    .attr('width', width)
-    .attr('height', height)
+    .attr('width', '100%')
+    .attr('height', '100%')
     .attr('viewBox', [0, 0, width, height])
     .style('background-color', '#fff');
   
-  // Create main group
-  const g = svg.append('g');
+  // Store SVG reference
+  svgRef.current = svg.node();
   
+  // Create main group for zoom/pan behavior
+  const g = svg.append('g');
+
+  // Create groups for links and nodes
+  const linksGroup = g.append('g').attr('class', 'links');
+  const nodesGroup = g.append('g').attr('class', 'nodes');
+
   // Add zoom behavior
   const zoom = d3.zoom()
     .scaleExtent([0.5, 2])
-    .on('zoom', (event) => g.attr('transform', event.transform));
-  
+    .on('zoom', (event) => {
+      g.attr('transform', event.transform);
+    });
+
   svg.call(zoom);
+  svg.call(zoom.transform, d3.zoomIdentity);
 
-  // Add arrowhead markers for bidirectional connections
-  const defs = svg.append('defs');
-  
-  defs.append('marker')
-    .attr('id', 'arrowhead-up')
-    .attr('viewBox', '0 -5 10 10')
-    .attr('refX', 8)
-    .attr('refY', 0)
-    .attr('orient', 'auto')
-    .attr('markerWidth', 6)
-    .attr('markerHeight', 6)
-    .append('path')
-    .attr('d', 'M0,-5L10,0L0,5')
-    .attr('fill', '#4a5568');
-    
-  defs.append('marker')
-    .attr('id', 'arrowhead-down')
-    .attr('viewBox', '0 -5 10 10')
-    .attr('refX', 8)
-    .attr('refY', 0)
-    .attr('orient', 'auto-start-reverse')
-    .attr('markerWidth', 6)
-    .attr('markerHeight', 6)
-    .append('path')
-    .attr('d', 'M0,-5L10,0L0,5')
-    .attr('fill', '#4a5568');
-
-  // Group nodes by type
-  const nodesByType = {};
+  // Initialize node positions based on their type
   data.nodes.forEach(node => {
-    if (!nodesByType[node.type]) {
-      nodesByType[node.type] = [];
+    switch (node.type) {
+      case 'cpu':
+        const cpuIndex = data.nodes.filter(n => n.type === 'cpu').indexOf(node);
+        const cpuCount = data.nodes.filter(n => n.type === 'cpu').length;
+        const cpuSpacing = width / (cpuCount + 1);
+        node.x = cpuSpacing * (cpuIndex + 1);
+        node.y = height * 0.2;
+        break;
+      case 'network':
+        node.x = width / 2;
+        node.y = height * 0.4;
+        break;
+      case 'memory':
+        node.x = width / 2;
+        node.y = height * 0.6;
+        break;
+      case 'disk':
+        const diskIndex = data.nodes.filter(n => n.type === 'disk').indexOf(node);
+        const diskCount = data.nodes.filter(n => n.type === 'disk').length;
+        const diskSpacing = width / (diskCount + 1);
+        node.x = diskSpacing * (diskIndex + 1);
+        node.y = height * 0.8;
+        break;
     }
-    nodesByType[node.type].push(node);
+    // Add fixed property for drag behavior
+    node.fx = node.x;
+    node.fy = node.y;
   });
 
-  // Set initial positions in a grid layout
-  // CPU layer (top row)
-  const cpuNodes = nodesByType['cpu'] || [];
-  const cpuCount = cpuNodes.length;
-  const cpuSpacing = width / (cpuCount + 1);
-  
-  cpuNodes.forEach((node, index) => {
-    node.x = cpuSpacing * (index + 1);
-    node.y = height * 0.2;
-  });
-  
-  // Network layer (middle row)
-  const networkNodes = nodesByType['network'] || [];
-  networkNodes.forEach(node => {
-    node.x = width / 2;
-    node.y = height * 0.4;
-    // Only fix the network node's position
-    node.fx = width / 2;
-    node.fy = height * 0.4;
-  });
-  
-  // Bottom row - disks on left, shared memory on right
-  const diskNodes = nodesByType['disk'] || [];
-  const diskCount = diskNodes.length;
-  const diskArea = width * 0.6;
-  const diskSpacing = diskArea / (diskCount + 1);
-  
-  diskNodes.forEach((node, index) => {
-    node.x = diskSpacing * (index + 1);
-    node.y = height * 0.7;
-  });
-  
-  // Position shared memory on the right side
-  const memoryNodes = nodesByType['memory'] || [];
-  memoryNodes.forEach(node => {
-    node.x = width * 0.8;
-    node.y = height * 0.7;
-  });
+  // Create force simulation
+  const simulation = d3.forceSimulation(data.nodes)
+    .force('link', d3.forceLink(data.edges)
+      .id(d => d.id)
+      .distance(100)
+      .strength(0.5))
+    .force('charge', d3.forceManyBody().strength(-1000))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide().radius(60))
+    .alphaTarget(0);
 
-  // Create links before nodes
-  const links = g.append('g')
-    .attr('class', 'links')
-    .selectAll('path')
+  simulationRef.current = simulation;
+
+  // Create links with updated styling (no arrows)
+  const links = linksGroup.selectAll('path')
     .data(data.edges)
     .join('path')
     .attr('class', 'connection')
+    .attr('data-source', d => d.source.id || d.source)
+    .attr('data-target', d => d.target.id || d.target)
     .style('fill', 'none')
     .style('stroke', '#4a5568')
     .style('stroke-width', '2px')
-    .style('marker-end', 'url(#arrowhead-up)')
-    .style('marker-start', 'url(#arrowhead-down)');
+    .style('stroke-opacity', 0.6)
+    .style('transition', 'all 0.3s ease')
+    .style('cursor', 'pointer')
+    .on('mouseover', function() {
+      d3.select(this)
+        .transition()
+        .duration(200)
+        .style('stroke-opacity', 1)
+        .style('stroke-width', '3px');
+    })
+    .on('mouseout', function() {
+      d3.select(this)
+        .transition()
+        .duration(200)
+        .style('stroke-opacity', 0.6)
+        .style('stroke-width', '2px');
+    });
 
-  // Create nodes
-  const nodes = g.append('g')
-    .attr('class', 'nodes')
-    .selectAll('g')
+  // Create nodes with proper IDs
+  const nodes = nodesGroup.selectAll('g')
     .data(data.nodes)
     .join('g')
     .attr('class', d => `node ${d.type}`)
+    .attr('data-node-id', d => d.id)
+    .style('cursor', 'grab')
     .call(d3.drag()
-      .on('start', dragstarted)
+      .on('start', dragStarted)
       .on('drag', dragged)
-      .on('end', dragended));
+      .on('end', dragEnded));
 
   // Draw shapes based on node type
   nodes.each(function(d) {
     const node = d3.select(this);
     
-    if (d.type === 'memory') {
-      // Memory nodes (rectangles)
-      node.append('rect')
-        .attr('width', 120)
-        .attr('height', 50)
-        .attr('x', -60)
-        .attr('y', -25)
-        .attr('rx', 2)
-        .style('fill', '#ffffff')
-        .style('stroke', '#4ade80')
-        .style('stroke-width', '2px');
-    } else if (d.type === 'cpu') {
-      // CPU nodes (rectangles)
-      node.append('rect')
-        .attr('width', 80)
-        .attr('height', 40)
-        .attr('x', -40)
-        .attr('y', -20)
-        .attr('rx', 2)
-        .style('fill', '#ffffff')
-        .style('stroke', '#000000')
-        .style('stroke-width', '2px');
-    } else if (d.type === 'disk') {
-      // Disk nodes (cylinders)
-      const cylinderHeight = 80;
-      const cylinderWidth = 80;
-      const ellipseHeight = cylinderHeight * 0.2;
-      
-      // Cylinder body
-      node.append('path')
-        .attr('d', `
-          M${-cylinderWidth/2},${-cylinderHeight/2 + ellipseHeight}
-          v${cylinderHeight - ellipseHeight*2}
-          a${cylinderWidth/2},${ellipseHeight} 0 0 0 ${cylinderWidth},0
-          v${-cylinderHeight + ellipseHeight*2}
-          a${cylinderWidth/2},${ellipseHeight} 0 0 0 ${-cylinderWidth},0
-          z
-        `)
-        .style('fill', '#ffffff')
-        .style('stroke', '#4ade80')
-        .style('stroke-width', '2px');
-        
-      // Top ellipse
-      node.append('ellipse')
-        .attr('cx', 0)
-        .attr('cy', -cylinderHeight/2 + ellipseHeight)
-        .attr('rx', cylinderWidth/2)
-        .attr('ry', ellipseHeight)
-        .style('fill', '#ffffff')
-        .style('stroke', '#4ade80')
-        .style('stroke-width', '2px');
-    } else if (d.type === 'network') {
-      // Network node (rectangle)
-      const networkWidth = width * 0.8;
-      node.append('rect')
-        .attr('width', networkWidth)
-        .attr('height', 40)
-        .attr('x', -networkWidth / 2)
-        .attr('y', -20)
-        .attr('rx', 2)
-        .style('fill', '#ffffff')
-        .style('stroke', '#4ade80')
-        .style('stroke-width', '2px');
-    }
+    // Add rectangle with type-specific styling
+    node.append('rect')
+      .attr('x', -50)
+      .attr('y', -25)
+      .attr('width', 100)
+      .attr('height', 50)
+      .attr('rx', 5)
+      .attr('fill', () => {
+        switch (d.type) {
+          case 'cpu': return '#4299e1';
+          case 'network': return '#48bb78';
+          case 'memory': return '#ed8936';
+          case 'disk': return '#9f7aea';
+          default: return '#718096';
+        }
+      })
+      .attr('stroke', '#2d3748')
+      .attr('stroke-width', 2)
+      .attr('opacity', 0.9)
+      .style('transition', 'all 0.3s ease');
     
-    // Add text labels
+    // Add text
     node.append('text')
       .attr('text-anchor', 'middle')
-      .attr('dominant-baseline', 'middle')
-      .attr('y', 2)
-      .style('fill', d.type === 'cpu' ? '#000000' : '#4ade80')
-      .style('font-size', '14px')
-      .style('font-weight', 'bold')
-      .style('font-family', 'sans-serif')
-      .text(d.name);
+      .attr('dy', '0.3em')
+      .attr('fill', 'white')
+      .attr('font-weight', 'bold')
+      .style('font-size', '12px')
+      .text(d.name || d.type.toUpperCase());
+
+    // Add hover effects
+    node
+      .on('mouseover', function() {
+        d3.select(this).select('rect')
+          .transition()
+          .duration(200)
+          .style('filter', 'drop-shadow(0 0 5px rgba(66, 153, 225, 0.5))')
+          .attr('opacity', 1);
+      })
+      .on('mouseout', function() {
+        if (!d3.select(this).classed('highlighted')) {
+          d3.select(this).select('rect')
+            .transition()
+            .duration(200)
+            .style('filter', null)
+            .attr('opacity', 0.9);
+        }
+      });
   });
 
-  // Setup simulation with modified forces
-  const simulation = d3.forceSimulation(data.nodes)
-    .force('link', d3.forceLink(data.edges)
-      .id(d => d.id)
-      .distance(d => {
-        // Link distances for organized layout
-        if (d.source.type === 'cpu' && d.target.type === 'network') return 120;
-        if (d.source.type === 'network' && d.target.type === 'disk') return 150;
-        if (d.source.type === 'network' && d.target.type === 'memory') return 150;
-        return 200;
-      })
-      .strength(0.1)
-    )
-    .force('charge', d3.forceManyBody().strength(-100))
-    .force('collision', d3.forceCollide().radius(80))
-    // Strong y-positioning force to maintain layers
-    .force('y', d3.forceY().y(d => {
-      // Layer-based y positioning
-      if (d.type === 'cpu') return height * 0.2;
-      if (d.type === 'network') return height * 0.4;
-      if (d.type === 'disk' || d.type === 'memory') return height * 0.7;
-      return height / 2;
-    }).strength(0.7))
-    // X positioning force
-    .force('x', d3.forceX().x(d => {
-      if (d.type === 'network') return width / 2;
-      if (d.type === 'memory') return width * 0.8;
-      return d.x;
-    }).strength(d => {
-      if (d.type === 'network') return 1;
-      if (d.type === 'memory') return 0.7;
-      return 0.3;
-    }))
-    .on('tick', ticked);
-
-  // Tick function to update positions
-  function ticked() {
+  // Update force simulation on tick
+  simulation.on('tick', () => {
+    // Update link positions with smoother curves
     links.attr('d', d => {
       const sourceX = d.source.x;
       const sourceY = d.source.y;
       const targetX = d.target.x;
       const targetY = d.target.y;
       
-      // Calculate path for bidirectional arrows
-      if (d.type === 'bidirectional') {
-        const dx = targetX - sourceX;
-        const dy = targetY - sourceY;
-        const angle = Math.atan2(dy, dx);
-        
-        const offset = 5;
-        const sourceXOffset = sourceX + offset * Math.sin(angle);
-        const sourceYOffset = sourceY - offset * Math.cos(angle);
-        const targetXOffset = targetX + offset * Math.sin(angle);
-        const targetYOffset = targetY - offset * Math.cos(angle);
-        
-        return `M${sourceXOffset},${sourceYOffset} L${targetXOffset},${targetYOffset}`;
-      } else {
-        return `M${sourceX},${sourceY} L${targetX},${targetY}`;
-      }
+      // Calculate control points for a smoother curve
+      const dx = targetX - sourceX;
+      const dy = targetY - sourceY;
+      const dr = Math.sqrt(dx * dx + dy * dy) * 1.5; // Increased curve factor for smoother bends
+      
+      return `M${sourceX},${sourceY}A${dr},${dr} 0 0,1 ${targetX},${targetY}`;
     });
-    
+
+    // Update node positions
     nodes.attr('transform', d => `translate(${d.x},${d.y})`);
-  }
+  });
 
   // Drag functions
-  function dragstarted(event, d) {
+  function dragStarted(event, d) {
+    d3.select(this).style('cursor', 'grabbing');
     if (!event.active) simulation.alphaTarget(0.3).restart();
     d.fx = d.x;
     d.fy = d.y;
   }
-  
+
   function dragged(event, d) {
     d.fx = event.x;
     d.fy = event.y;
   }
-  
-  function dragended(event, d) {
-    if (!event.active) simulation.alphaTarget(0);
-    if (d.type !== 'network') { // Keep network node fixed
-      d.fx = null;
-      d.fy = null;
-    }
-  }
 
-  // Initial simulation with higher alpha to settle positions
-  simulation.alpha(0.5).restart();
-  
-  return simulation;
+  function dragEnded(event, d) {
+    d3.select(this).style('cursor', 'grab');
+    if (!event.active) simulation.alphaTarget(0);
+    // Keep the node fixed at its new position
+    d.fx = d.x;
+    d.fy = d.y;
+  }
 };
 
 export default SharedMemoryVisualization;
