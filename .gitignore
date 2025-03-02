@@ -49,3 +49,5 @@ Thumbs.db
 static/videos/
 .venv
 media/videos/
+# Audio files
+static/audio/*.mp3
