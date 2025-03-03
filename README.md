@@ -72,6 +72,13 @@ Generates audio narration for the visualization.
 **Path Parameters:**
 - `topic`: The visualization topic
 
+**Request Body:**
+```json
+{
+    "text": string  // The text to be narrated
+}
+```
+
 **Response Body:**
 ```json
 {
@@ -220,3 +227,66 @@ Common status codes:
 - Node IDs in word_timings can be either a single string or an array of strings
 - The system supports real-time highlighting and animation based on narration timing
 
+## Testing APIs with cURL
+
+Here are example curl commands to test each API endpoint:
+
+### 1. Get Visualization Data
+```bash
+curl -X POST https://d259-2401-4900-8821-9282-e9fd-ea41-8b61-864d.ngrok-free.app/api/visualization \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "shared_memory"
+  }'
+```
+
+### 2. Generate Narration
+```bash
+curl -X POST https://d259-2401-4900-8821-9282-e9fd-ea41-8b61-864d.ngrok-free.app/api/narration/shared_memory \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Let us explore how CPU interacts with memory in a shared memory architecture"
+  }'
+```
+
+### 3. Handle Doubt
+```bash
+curl -X POST https://d259-2401-4900-8821-9282-e9fd-ea41-8b61-864d.ngrok-free.app/api/doubt \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "shared_memory",
+    "doubt": "How does CPU communicate with memory?",
+    "current_time": 5000,
+    "current_state": {
+      "highlightedElements": ["cpu1", "memory1"]
+    }
+  }'
+```
+
+### 4. Get Highlights
+```bash
+# Method 1: With URL-encoded query parameter
+curl -X GET "https://d259-2401-4900-8821-9282-e9fd-ea41-8b61-864d.ngrok-free.app/api/highlights/shared_memory/5000?current_state=$(echo '{"highlightedElements":[],"currentTime":5000}' | jq -Rr @uri)"
+
+# Method 2: With state in header
+curl -X GET "https://d259-2401-4900-8821-9282-e9fd-ea41-8b61-864d.ngrok-free.app/api/highlights/shared_memory/5000" \
+  -H "Content-Type: application/json" \
+  -H "X-Current-State: {\"highlightedElements\":[],\"currentTime\":5000}"
+
+# Method 3: Without state parameter
+curl -X GET "https://d259-2401-4900-8821-9282-e9fd-ea41-8b61-864d.ngrok-free.app/api/highlights/shared_memory/5000"
+```
+
+### 5. Process Doubt (Enhanced)
+```bash
+curl -X POST https://d259-2401-4900-8821-9282-e9fd-ea41-8b61-864d.ngrok-free.app/api/process-doubt \
+  -H "Content-Type: application/json" \
+  -d '{
+    "doubt": "Explain the role of interconnection network",
+    "topic": "shared_nothing",
+    "current_state": {
+      "highlightedElements": ["network"],
+      "currentTime": 12000
+    }
+  }'
+```
