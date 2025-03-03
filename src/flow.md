@@ -15,7 +15,7 @@ sequenceDiagram
     VC->>B: POST /api/narration/{topic}
     B->>B: generate_narration()
     B-->>VC: Returns {audio_url, duration, word_timings, script}
-    VC->>VC: Initializes audio player & highlighting system
+    VC->>VC: Initializes audio player & highlighting system (AI agent, highlight based code and new narration)
 
 ### play narration
 sequenceDiagram
