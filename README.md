@@ -74,9 +74,7 @@ Generates audio narration for the visualization.
 
 **Request Body:**
 ```json
-{
-    "text": string  // The text to be narrated
-}
+{}
 ```
 
 **Response Body:**
@@ -290,3 +288,4 @@ curl -X POST https://d259-2401-4900-8821-9282-e9fd-ea41-8b61-864d.ngrok-free.app
     }
   }'
 ```
+

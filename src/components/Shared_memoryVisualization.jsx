@@ -87,17 +87,18 @@ const SharedMemoryVisualization = ({ data, highlightedElements }) => {
     }
   }, [highlightedElements]);
 
-  return (
-    <div 
-      ref={containerRef}
-      style={{ 
+  return React.createElement(
+    "div",
+    {
+      ref: containerRef,
+      style: { 
         width: '100%', 
         height: '500px',
         border: '1px solid #eaeaea',
         position: 'relative',
         overflow: 'hidden'
-      }}
-    />
+      }
+    }
   );
 };
 

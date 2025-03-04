@@ -72,12 +72,13 @@ const SharedDiskVisualization = ({ data, highlightedElements }) => {
     }
   }, [highlightedElements]);
 
-  return (
-    <div 
-      id="visualization-container" 
-      ref={containerRef} 
-      style={{ width: '100%', height: '100%', border: '1px solid #eaeaea' }}
-    />
+  return React.createElement(
+    "div",
+    {
+      id: "visualization-container",
+      ref: containerRef,
+      style: { width: '100%', height: '100%', border: '1px solid #eaeaea' }
+    }
   );
 };
 

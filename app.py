@@ -85,7 +85,7 @@ class WordTiming(BaseModel):
     word: str
     start_time: int = Field(description="Time in milliseconds from start")
     end_time: int = Field(description="Time in milliseconds from start")
-    node_id: Optional[str] = Field(None, description="ID of the node to highlight")
+    node_id: Optional[Union[str, List[str]]] = Field(None, description="ID of the node(s) to highlight")
 
 class AnimationState(BaseModel):
     component_id: str
@@ -105,12 +105,22 @@ class VisualizationData(BaseModel):
 class DoubtRequest(BaseModel):
     topic: str
     doubt: str
+    current_time: Optional[int] = None
+    current_state: Optional[dict] = None
 
 class NarrationData(BaseModel):
     audio_url: str
     duration: int = Field(description="Total duration in milliseconds")
     word_timings: List[WordTiming]
     script: str
+
+class DoubtResponse(BaseModel):
+    narration: Optional[str] = None
+    narration_timestamps: Optional[List[WordTiming]] = None
+    nodes: Optional[List[VisualizationNode]] = None
+    edges: Optional[List[VisualizationEdge]] = None
+    highlights: Optional[List[str]] = None
+    jsx_code: Optional[str] = None
 
 def load_visualization_data(topic: str) -> VisualizationData:
     """Load visualization data and JSX code for a specific topic"""
@@ -289,7 +299,14 @@ async def get_visualization(request: VisualizationRequest):
         try:
             script_data = load_narration_script(request.topic)
             narration = script_data.get('script', '')
-            narration_timestamps = script_data.get('timestamps', [])
+            narration_timestamps = script_data.get('narration_timestamps', [])
+            
+            # Handle both node_id and node_ids in the timestamps
+            if narration_timestamps:
+                for timestamp in narration_timestamps:
+                    if 'node_ids' in timestamp and 'node_id' not in timestamp:
+                        timestamp['node_id'] = timestamp.pop('node_ids')
+            
             animation_states = script_data.get('animation_states', [])
             
             # Validate that timestamps and animation states are properly synced
@@ -543,19 +560,6 @@ def get_highlights(topic: str, timestamp: int):
         logging.error(f'Error getting highlights: {e}')
         return jsonify({'error': 'Internal server error'}), 500
 
-class DoubtRequest(BaseModel):
-    topic: str
-    doubt: str
-    current_time: Optional[int] = None
-    current_state: Optional[dict] = None
-
-class DoubtResponse(BaseModel):
-    narration: Optional[str] = None
-    narration_timestamps: Optional[List[WordTiming]] = None
-    nodes: Optional[List[VisualizationNode]] = None
-    edges: Optional[List[VisualizationEdge]] = None
-    highlights: Optional[List[str]] = None
-
 @app.post("/api/doubt", response_model=DoubtResponse)
 async def handle_doubt(request: DoubtRequest):
     try:
@@ -603,7 +607,40 @@ async def handle_doubt(request: DoubtRequest):
                 model="claude-3-opus-20240229",
                 max_tokens=2000,
                 temperature=0.7,
-                system="You are an AI visualization expert. Your task is to help users understand visualizations by answering their questions and suggesting relevant visual highlights and modifications. Focus on being clear, concise, and educational.",
+                system="""You are an expert in database visualization and education. Your task is to:
+1. Provide clear, detailed explanations of database concepts
+2. Identify relevant components in visualizations
+3. Suggest visual highlights to emphasize important elements
+4. Give practical examples and analogies
+5. Make recommendations for better understanding
+
+Format your response in JSON with these sections:
+{
+    "explanation": "Main detailed explanation",
+    "additionalInfo": "Additional context and background",
+    "componentDetails": {
+        "componentName": "Specific details about this component",
+        ...
+    },
+    "examples": ["Practical example 1", "Example 2", ...],
+    "recommendations": ["Recommendation 1", "Recommendation 2", ...],
+    "highlightElements": [
+        {
+            "id": "component_id",
+            "type": "highlight",
+            "emphasis": "normal|strong|subtle"
+        },
+        ...
+    ]
+}
+
+IMPORTANT: If you need to include any JSX code in your response, use React.createElement() syntax instead of JSX tags.
+For example, instead of:
+<div className="example">Hello</div>
+
+Use:
+React.createElement("div", { className: "example" }, "Hello")
+""",
                 messages=[{
                     "role": "user",
                     "content": f"""I'm looking at a visualization about {request.topic}. Here's my question: {request.doubt}
@@ -644,9 +681,53 @@ Respond in JSON format with these fields:
         
         try:
             # Prepare the response
+            # Check if the response is already a JSON string and parse it if needed
+            if isinstance(ai_response, str):
+                try:
+                    ai_response = json.loads(ai_response)
+                except json.JSONDecodeError:
+                    ai_response = {"explanation": ai_response}
+            
+            # Extract highlights from highlightElements if present
+            highlights = []
+            if "highlightElements" in ai_response:
+                highlights = [item["id"] for item in ai_response["highlightElements"] if "id" in item]
+            elif "highlights" in ai_response:
+                highlights = ai_response["highlights"]
+            
+            # Prepare a formatted narration from the AI response
+            formatted_narration = ""
+            if "explanation" in ai_response:
+                formatted_narration += ai_response["explanation"] + "\n\n"
+            
+            if "additionalInfo" in ai_response and ai_response["additionalInfo"]:
+                formatted_narration += ai_response["additionalInfo"] + "\n\n"
+                
+            if "componentDetails" in ai_response and ai_response["componentDetails"]:
+                formatted_narration += "Key Components:\n"
+                for comp_name, comp_details in ai_response["componentDetails"].items():
+                    details = comp_details if isinstance(comp_details, str) else comp_details.get("description", "")
+                    formatted_narration += f"• {comp_name}: {details}\n"
+                formatted_narration += "\n"
+                
+            if "examples" in ai_response and ai_response["examples"]:
+                formatted_narration += "Examples:\n"
+                for i, example in enumerate(ai_response["examples"]):
+                    formatted_narration += f"{i+1}. {example}\n"
+                formatted_narration += "\n"
+                
+            if "recommendations" in ai_response and ai_response["recommendations"]:
+                formatted_narration += "Recommendations:\n"
+                for rec in ai_response["recommendations"]:
+                    formatted_narration += f"• {rec}\n"
+            
+            # Use the formatted narration or fallback to the original response
+            narration_text = formatted_narration.strip() or ai_response.get("new_narration") or ai_response.get("explanation", "No explanation provided")
+            
             doubt_response = DoubtResponse(
-                narration=ai_response.get("new_narration") or ai_response["explanation"],
-                highlights=ai_response.get("highlights", [])
+                narration=narration_text,
+                highlights=highlights,
+                jsx_code=current_data.jsx_code
             )
             
             # Apply any suggested modifications to the visualization
@@ -787,7 +868,15 @@ Format your response in JSON with these sections:
         },
         ...
     ]
-}""",
+}
+
+IMPORTANT: If you need to include any JSX code in your response, use React.createElement() syntax instead of JSX tags.
+For example, instead of:
+<div className="example">Hello</div>
+
+Use:
+React.createElement("div", { className: "example" }, "Hello")
+""",
                 messages=[{
                     "role": "user",
                     "content": f"""User Question: {doubt}
@@ -849,7 +938,7 @@ def enhance_response(ai_response: dict, topic: str, relevant_nodes: list) -> dic
             matching_node = next((node for node in relevant_nodes if node["id"] == component), None)
             if matching_node:
                 enhanced["componentDetails"][component] = {
-                    "description": details if isinstance(details, str) else details.get('description', str(details)),
+                    "description": details if isinstance(details, str) else details.get("description", str(details)),
                     "type": matching_node.get("type", "default"),
                     "properties": matching_node.get("properties", [])
                 }
