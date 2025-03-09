@@ -16,6 +16,11 @@ import ActiveDBVisualization from './ActivedbVisualization';
 import QueryProcessingVisualization from './QueryprocessingVisualization';
 import MobiledbVisualization from './MobiledbVisualization';
 import GISVisualization from './GisVisualization';
+import PESTELVisualization from './PESTELVisualization';
+import PortersfiveforcesVisualization from './PortersfiveforcesVisualization';
+import SWOTVisualization from './SWOTVisualization';
+import IndustryLifeCycleVisualization from './IndustrylifecycleVisualization';
+import MarketStructuresVisualization from './MarketstructuresVisualization';
 
 // Define the VISUALIZATIONS object
 const VISUALIZATIONS = {
@@ -34,7 +39,12 @@ const VISUALIZATIONS = {
     activedb: ActiveDBVisualization,
     queryprocessing: QueryProcessingVisualization,
     mobiledb: MobiledbVisualization,
-    gis: GISVisualization
+    gis: GISVisualization,
+    pestel: PESTELVisualization,
+    portersfiveforces: PortersfiveforcesVisualization,
+    swot: SWOTVisualization,
+    industrylifecycle: IndustryLifeCycleVisualization,
+    marketstructures: MarketStructuresVisualization
 };
 
 const App = () => {
@@ -122,14 +132,18 @@ const App = () => {
                     <option value="shared_nothing">Shared Nothing Model</option>
                     <option value="distributed_database">Distributed Database Model</option>
                     <option value="oop_concepts">OOP Concepts Model</option>
-
                     <option value="relationalQuery">Relational Query Language</option> 
                     <option value="normalization">Normal Form Visualization</option>
                     <option value="activedb">Active Database Visualization</option>
                     <option value="queryprocessing">Query Processing Visualization</option>
                     <option value="mobiledb">Mobile Database Visualization</option>
                     <option value="gis">GISVisualization</option>
-
+                    <option value="pestel">PESTEL Visualization</option>
+                    <option value="portersfiveforces">Porters Five Forces Visualization</option>
+                    <option value="swot"> SWOT Analysis Visualization</option>
+                    <option value="industrylifecycle"> Industry life cycle Visualization</option>
+                    <option value="marketstructures"> Types of Market Structures Visualization</option>
+                    
                 </select>
             </div>
             <div className="content-container">
