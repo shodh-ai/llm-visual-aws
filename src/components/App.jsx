@@ -21,6 +21,7 @@ import PortersfiveforcesVisualization from './PortersfiveforcesVisualization';
 import SWOTVisualization from './SWOTVisualization';
 import IndustryLifeCycleVisualization from './IndustrylifecycleVisualization';
 import MarketStructuresVisualization from './MarketstructuresVisualization';
+import StrategicIntentVisualization from './StrategicintentVisualization';
 
 // Define the VISUALIZATIONS object
 const VISUALIZATIONS = {
@@ -44,7 +45,8 @@ const VISUALIZATIONS = {
     portersfiveforces: PortersfiveforcesVisualization,
     swot: SWOTVisualization,
     industrylifecycle: IndustryLifeCycleVisualization,
-    marketstructures: MarketStructuresVisualization
+    marketstructures: MarketStructuresVisualization,
+    strategicintent: StrategicIntentVisualization
 };
 
 const App = () => {
@@ -140,9 +142,10 @@ const App = () => {
                     <option value="gis">GISVisualization</option>
                     <option value="pestel">PESTEL Visualization</option>
                     <option value="portersfiveforces">Porters Five Forces Visualization</option>
-                    <option value="swot"> SWOT Analysis Visualization</option>
-                    <option value="industrylifecycle"> Industry life cycle Visualization</option>
-                    <option value="marketstructures"> Types of Market Structures Visualization</option>
+                    <option value="swot">SWOT Analysis Visualization</option>
+                    <option value="industrylifecycle">Industry life cycle Visualization</option>
+                    <option value="marketstructures">Market Structures Visualization</option>
+                    <option value="strategicintent">Strategic Intent Visualization</option>
                     
                 </select>
             </div>
