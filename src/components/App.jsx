@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
+import DoubtBox from './DoubtBox';
 import ERVisualization from './ERVisualization';
 import DocumentVisualization from './DocumentVisualization';
-
 import HierarchicalVisualization from './HierarchicalVisualization';
 import EntityVisualization from './EntityVisualization';
 import AttributeVisualization from './AttributeVisualization';
@@ -22,6 +22,7 @@ import SWOTVisualization from './SWOTVisualization';
 import IndustryLifeCycleVisualization from './IndustrylifecycleVisualization';
 import MarketStructuresVisualization from './MarketstructuresVisualization';
 import StrategicIntentVisualization from './StrategicintentVisualization';
+import VisualizationController from './VisualizationController';
 
 // Define the VISUALIZATIONS object
 const VISUALIZATIONS = {
@@ -50,12 +51,25 @@ const VISUALIZATIONS = {
 };
 
 const App = () => {
-    const [topic, setTopic] = useState('');
+    const [topic, setTopic] = useState(null);
     const [data, setData] = useState(null);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [animationStates, setAnimationStates] = useState([]);
+    const [activeHighlights, setActiveHighlights] = useState(new Set());
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [narration, setNarration] = useState('');
+    const [isProcessingDoubt, setIsProcessingDoubt] = useState(false);
     const visualizationRef = useRef(null);
+    const timerRef = useRef(null);
+    const startTimeRef = useRef(0);
+    const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         if (!topic) return;
+        
+        setLoading(true);
+        setError(null);
 
         fetch(`/api/visualization`, {
             method: 'POST',
@@ -64,65 +78,265 @@ const App = () => {
             },
             body: JSON.stringify({ topic })
         })
-        .then(async response => {
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
-            }
-            return response.json();
+        .then(response => response.json())
+        .then(result => {
+            setData(result);
+            setLoading(false);
         })
-        .then(responseData => {
-            setData({
-                nodes: responseData.nodes,
-                edges: responseData.edges,
-                narration: responseData.narration
-            });
-        })
-        .catch(error => {
-            console.error('Error loading visualization:', error);
-            setData(null);
+        .catch(err => {
+            setError(err.message);
+            setLoading(false);
         });
     }, [topic]);
-
 
     const handleTopicChange = (e) => {
         setTopic(e.target.value);
     };
 
-    const handleNodeClick = (node) => {
-        console.log('Clicked:', node);
+    const handleDoubtSubmit = async (doubt) => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await fetch('/api/process-doubt', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ doubt, topic }),
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to process doubt');
+            }
+            
+            const result = await response.json();
+            // Extract the narration text from the response
+            const narrationText = typeof result.narration === 'string' 
+                ? result.narration 
+                : result.narration?.explanation || 'No explanation available';
+            
+            setNarration(narrationText);
+            if (result.highlightedElements) {
+                setActiveHighlights(new Set(result.highlightedElements));
+            }
+        } catch (err) {
+            setError('Failed to process your doubt. Please try again.');
+            console.error('Error processing doubt:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleNodeClick = (nodeId) => {
+        console.log('Clicked node:', nodeId);
         if (visualizationRef.current?.highlightNode) {
-            visualizationRef.current.highlightNode(node.id);
+            visualizationRef.current.highlightNode(nodeId);
             setTimeout(() => {
                 visualizationRef.current?.resetHighlights();
             }, 2000);
         }
     };
 
+    const updateHighlights = (time) => {
+        if (!data?.narration_timestamps) {
+            console.log('No narration timestamps available for highlighting');
+            return;
+        }
+        
+        // Reset all highlights first
+        visualizationRef.current?.resetHighlights();
+
+        // Find current narration segment
+        const currentSegment = data.narration_timestamps.find(segment => 
+            time >= segment.start_time && time <= segment.end_time
+        );
+
+        console.log('Current time:', time, 'Current segment:', currentSegment);
+
+        if (currentSegment) {
+            // Handle both single node_id and array of node_ids
+            const nodeIds = currentSegment.node_ids || 
+                          (currentSegment.node_id ? [currentSegment.node_id] : []);
+
+            console.log('Highlighting nodes:', nodeIds);
+
+            // Apply highlights to current nodes
+            nodeIds.forEach(nodeId => {
+                if (nodeId) {
+                    visualizationRef.current?.highlightNode(nodeId);
+                }
+            });
+            setActiveHighlights(new Set(nodeIds));
+        } else {
+            console.log('No active segment found for time:', time);
+            setActiveHighlights(new Set());
+        }
+    };
+
+    const animate = () => {
+        if (!isPlaying) {
+            console.log('Animation stopped - not playing');
+            return;
+        }
+        
+        const timestamps = data?.narration_timestamps;
+        if (!timestamps?.length) {
+            console.log('No narration timestamps available');
+            setIsPlaying(false);
+            return;
+        }
+        
+        const now = Date.now();
+        const elapsed = now - startTimeRef.current;
+        console.log('Current time:', elapsed, 'ms');
+
+        // Update current time
+        setCurrentTime(elapsed);
+
+        // Find current word timing
+        const currentTiming = timestamps.find(timing => 
+            elapsed >= timing.start_time && elapsed <= timing.end_time
+        );
+
+        if (currentTiming) {
+            // Update highlights based on current timing
+            if (visualizationRef.current?.highlightNode) {
+                visualizationRef.current.resetHighlights();
+                currentTiming.node_ids.forEach(nodeId => {
+                    visualizationRef.current.highlightNode(nodeId);
+                });
+            }
+        }
+
+        // Check if animation should end
+        const lastTiming = timestamps[timestamps.length - 1];
+        if (elapsed > lastTiming.end_time) {
+            setIsPlaying(false);
+            if (visualizationRef.current?.resetHighlights) {
+                visualizationRef.current.resetHighlights();
+            }
+            return;
+        }
+
+        // Continue animation
+        timerRef.current = requestAnimationFrame(animate);
+        if (elapsed >= lastSegment.end_time) {
+            console.log('Animation complete');
+            setIsPlaying(false);
+            setCurrentTime(lastSegment.end_time);
+            updateHighlights(lastSegment.end_time);
+            if (timerRef.current) {
+                cancelAnimationFrame(timerRef.current);
+            }
+            return;
+        }
+
+        setCurrentTime(elapsed);
+        updateHighlights(elapsed);
+        timerRef.current = requestAnimationFrame(animate);
+    };
+
+    // Effect to update highlights when currentTime changes
+    useEffect(() => {
+        if (data?.narration_timestamps) {
+            updateHighlights(currentTime);
+        }
+    }, [currentTime, data]);
+
+    const handlePlayPause = () => {
+        console.log('Play/Pause clicked, current state:', isPlaying);
+        if (isPlaying) {
+            // Pause animation
+            console.log('Pausing animation');
+            if (timerRef.current) {
+                cancelAnimationFrame(timerRef.current);
+            }
+            setIsPlaying(false);
+        } else {
+            // Start/resume animation
+            console.log('Starting animation');
+            startTimeRef.current = Date.now() - currentTime;
+            setIsPlaying(true);
+            animate(); // Start animation
+        }
+    };
+
+    // Cleanup effect
+    useEffect(() => {
+        return () => {
+            if (timerRef.current) {
+                cancelAnimationFrame(timerRef.current);
+            }
+        };
+    }, []);
+
+    // Reset animation when topic changes
+    useEffect(() => {
+        setCurrentTime(0);
+        setIsPlaying(false);
+        if (timerRef.current) {
+            cancelAnimationFrame(timerRef.current);
+        }
+    }, [topic]);
+
+    useEffect(() => {
+        if (data?.narration_timestamps) {
+            // Reset animation when data changes
+            setCurrentTime(0);
+            setIsPlaying(false);
+            if (timerRef.current) {
+                cancelAnimationFrame(timerRef.current);
+            }
+        }
+    }, [data]);
+
     const renderVisualization = () => {
         if (!data || !topic) return null;
+        if (loading) return <div>Loading...</div>;
+        if (error) return <div>Error: {error}</div>;
 
+        // Use VisualizationController for shared memory and shared disk visualizations
+        if (topic === 'shared_memory' || topic === 'shared_disk' || topic === 'shared_nothing') {
+            return (
+                <VisualizationController
+                    visualizationComponent={VISUALIZATIONS[topic]}
+                    data={data}
+                    topic={topic}
+                />
+            );
+        }
+
+        // For other visualizations, use the existing rendering logic
         const VisualizationComponent = VISUALIZATIONS[topic];
         if (!VisualizationComponent) {
             return <div>Visualization type not supported</div>;
         }
 
-        const props = {
-            data: {
-                nodes: data.nodes,
-                edges: data.edges
-            },
-            onNodeClick: handleNodeClick,
-            ref: visualizationRef
-        };
-
-        return <VisualizationComponent {...props} />;
+        return (
+            <div className="visualization-container">
+                <VisualizationComponent
+                    ref={visualizationRef}
+                    data={{
+                        nodes: data.nodes,
+                        edges: data.edges
+                    }}
+                    activeHighlights={activeHighlights}
+                    onNodeClick={handleNodeClick}
+                />
+                <div className="narration-controls">
+                    <button onClick={handlePlayPause}>
+                        {isPlaying ? 'Pause' : 'Play'} Animation
+                    </button>
+                    <div className="timer">{(currentTime / 1000).toFixed(1)}s</div>
+                </div>
+            </div>
+        );
     };
 
     return (
         <div className="app-container">
             <div className="controls">
-                <select value={topic} onChange={handleTopicChange}>
+                <select value={topic || ''} onChange={handleTopicChange}>
                     <option value="">Select a visualization</option>
                     <option value="er">Entity-Relationship Model</option>
                     <option value="document">Document Model</option>
@@ -146,21 +360,13 @@ const App = () => {
                     <option value="industrylifecycle">Industry life cycle Visualization</option>
                     <option value="marketstructures">Market Structures Visualization</option>
                     <option value="strategicintent">Strategic Intent Visualization</option>
-                    
+
                 </select>
             </div>
             <div className="content-container">
                 <div className="visualization-container">
                     {renderVisualization()}
                 </div>
-                {data?.narration && (
-                    <div className="narration-container">
-                        <h3>Narration</h3>
-                        <div className="narration-text">
-                            {data.narration}
-                        </div>
-                    </div>
-                )}
             </div>
             <style>{`
                 .app-container {
@@ -177,33 +383,12 @@ const App = () => {
                 .content-container {
                     flex: 1;
                     min-height: 0;
-                    display: grid;
-                    grid-template-columns: 2fr 1fr;
-                    gap: 20px;
                 }
                 .visualization-container {
                     background-color: white;
                     border-radius: 10px;
                     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-                }
-                .narration-container {
-                    background-color: white;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-                    padding: 20px;
-                    overflow-y: auto;
-                }
-                .narration-container h3 {
-                    margin-top: 0;
-                    color: #1e40af;
-                    font-size: 1.2rem;
-                    margin-bottom: 1rem;
-                }
-                .narration-text {
-                    color: #374151;
-                    line-height: 1.6;
-                    font-size: 1rem;
-                    white-space: pre-wrap;
+                    height: 100%;
                 }
             `}</style>
         </div>
