@@ -7,24 +7,15 @@
             "attributes": [
                 {
                     "name": "student_id",
-                    "type": "key",
                     "isKey": true
                 },
                 {
-                    "name": "first_name",
-                    "type": "simple"
-                },
-                {
-                    "name": "last_name",
-                    "type": "simple"
+                    "name": "name",
+                    "isKey": false
                 },
                 {
                     "name": "email",
-                    "type": "simple"
-                },
-                {
-                    "name": "birth_date",
-                    "type": "simple"
+                    "isKey": false
                 }
             ]
         },
@@ -35,102 +26,34 @@
             "attributes": [
                 {
                     "name": "course_id",
-                    "type": "key",
                     "isKey": true
                 },
                 {
                     "name": "title",
-                    "type": "simple"
+                    "isKey": false
                 },
                 {
                     "name": "credits",
-                    "type": "simple"
-                },
-                {
-                    "name": "level",
-                    "type": "simple"
-                }
-            ]
-        },
-        {
-            "id": "instructor",
-            "name": "Instructor",
-            "type": "entity",
-            "attributes": [
-                {
-                    "name": "instructor_id",
-                    "type": "key",
-                    "isKey": true
-                },
-                {
-                    "name": "name",
-                    "type": "simple"
-                },
-                {
-                    "name": "department",
-                    "type": "simple"
-                },
-                {
-                    "name": "office",
-                    "type": "simple"
+                    "isKey": false
                 }
             ]
         },
         {
             "id": "enrollment",
-            "name": "Enrollment",
-            "type": "relationship",
-            "attributes": [
-                {
-                    "name": "date",
-                    "type": "simple"
-                },
-                {
-                    "name": "grade",
-                    "type": "simple"
-                }
-            ]
-        },
-        {
-            "id": "teaches",
-            "name": "Teaches",
-            "type": "relationship",
-            "attributes": [
-                {
-                    "name": "semester",
-                    "type": "simple"
-                },
-                {
-                    "name": "year",
-                    "type": "simple"
-                }
-            ]
+            "name": "Enrolls",
+            "type": "relationship"
         }
     ],
     "edges": [
         {
             "source": "student",
             "target": "enrollment",
-            "type": "participates",
-            "cardinality": "one_or_many"
+            "type": "connection"
         },
         {
-            "source": "course",
-            "target": "enrollment",
-            "type": "participates",
-            "cardinality": "one_or_many"
-        },
-        {
-            "source": "instructor",
-            "target": "teaches",
-            "type": "participates",
-            "cardinality": "one"
-        },
-        {
-            "source": "course",
-            "target": "teaches",
-            "type": "participates",
-            "cardinality": "one_or_many"
+            "source": "enrollment",
+            "target": "course",
+            "type": "connection"
         }
     ]
 }

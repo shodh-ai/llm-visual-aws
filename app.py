@@ -1,10 +1,10 @@
 #app.py
-from fastapi import FastAPI, HTTPException, Response, Request
+from fastapi import FastAPI, HTTPException, Response, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from anthropic import Anthropic
 from animation_generator import AnimationGenerator
 import os
@@ -13,11 +13,14 @@ import logging
 import json
 from pathlib import Path
 import tempfile
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, AsyncGenerator
 from datetime import datetime
 from flask import jsonify
 import requests
 import hashlib
+import asyncio
+from realtime_audio import handle_websocket_connection, handle_doubt_websocket, stream_text_to_speech
+import traceback
 
 logging.basicConfig(level=logging.INFO)
 load_dotenv()
@@ -49,9 +52,9 @@ async def read_root():
 openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 anthropic_client = Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
 
-# Create directory for audio files
-AUDIO_DIR = Path('static/audio')
-AUDIO_DIR.mkdir(exist_ok=True)
+# Define the audio directory
+AUDIO_DIR = Path("static/audio")
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 class Property(BaseModel):
     name: str
@@ -96,7 +99,9 @@ class VisualizationData(BaseModel):
     nodes: List[VisualizationNode]
     edges: List[VisualizationEdge]
     jsx_code: str
-    topic: str
+    topic: str  # This will remain as the original topic ID for backward compatibility
+    topic_name: Optional[str] = None  # Add the topic name
+    topic_id: Optional[str] = None  # Add the topic ID explicitly
     narration: Optional[str] = None
     narration_timestamps: Optional[List[WordTiming]] = None
     animation_states: Optional[List[AnimationState]] = None
@@ -113,6 +118,9 @@ class NarrationData(BaseModel):
     duration: int = Field(description="Total duration in milliseconds")
     word_timings: List[WordTiming]
     script: str
+    topic: Optional[str] = None  # Add the topic field
+    topic_name: Optional[str] = None  # Add the topic name
+    topic_id: Optional[str] = None  # Add the topic ID
 
 class DoubtResponse(BaseModel):
     narration: Optional[str] = None
@@ -121,6 +129,49 @@ class DoubtResponse(BaseModel):
     edges: Optional[List[VisualizationEdge]] = None
     highlights: Optional[List[str]] = None
     jsx_code: Optional[str] = None
+    topic: Optional[str] = None  # Add the topic field
+    topic_name: Optional[str] = None  # Add the topic name
+    topic_id: Optional[str] = None  # Add the topic ID
+
+# Add a mapping between topic IDs and topic names
+TOPIC_ID_MAP = {
+    "1": "schema",
+    "2": "parallel_db",
+    "3": "hierarchical",
+    "4": "network",
+    "5": "er",
+    "6": "document",
+    "7": "history",
+    "8": "xml",
+    "9": "entity",
+    "10": "attribute",
+    "22": "shared_disk",
+    "23": "shared_memory",
+    "24": "shared_nothing",
+    "25": "distributed_database",
+    "26": "oop_concepts",
+    "27": "relational",
+    "28": "relationalQuery",
+    "29": "normalization",
+    "30": "activedb",
+    "31": "queryprocessing",
+    "32": "mobiledb",
+    "33": "gis",
+    "34": "businesspolicy"
+}
+
+# Reverse mapping for looking up IDs by name
+TOPIC_NAME_TO_ID = {v: k for k, v in TOPIC_ID_MAP.items()}
+
+def get_topic_name(topic_id_or_name: str) -> str:
+    """Convert a topic ID to a topic name if needed"""
+    if topic_id_or_name in TOPIC_ID_MAP:
+        return TOPIC_ID_MAP[topic_id_or_name]
+    return topic_id_or_name
+
+def get_topic_id(topic_name: str) -> str:
+    """Convert a topic name to a topic ID if possible"""
+    return TOPIC_NAME_TO_ID.get(topic_name, topic_name)
 
 def load_visualization_data(topic: str) -> VisualizationData:
     """Load visualization data and JSX code for a specific topic"""
@@ -137,7 +188,7 @@ def load_visualization_data(topic: str) -> VisualizationData:
     if script_path.exists():
         with open(script_path) as f:
             script_data = json.load(f)
-            narration = script_data.get('script')
+            narration = script_data.get('script', '')
             
             # Generate animation steps using OpenAI
             if narration:
@@ -180,11 +231,16 @@ def load_visualization_data(topic: str) -> VisualizationData:
             }
         nodes.append(VisualizationNode(**node_data))
     
+    # Get topic ID if this is a topic name
+    topic_id = get_topic_id(topic)
+    
     return VisualizationData(
         nodes=nodes,
         edges=[VisualizationEdge(**e) for e in data['edges']],
         jsx_code=jsx_code,
-        topic=topic,
+        topic=topic,  # Use topic name as the main topic field
+        topic_name=topic,  # Set the topic name
+        topic_id=topic_id,  # Set the topic ID explicitly
         narration=narration,
         animation_states=[AnimationState(
             component_id=step['nodeIds'][0],
@@ -195,16 +251,64 @@ def load_visualization_data(topic: str) -> VisualizationData:
 
 def load_narration_script(topic: str) -> Dict:
     """Load the narration script with component mappings"""
+    # Convert topic ID to name if needed
+    topic_name = get_topic_name(topic)
+    
     # First try with _script.json suffix
-    script_path = Path('static/data') / f'{topic}_script.json'
+    script_path = Path('static/data') / f'{topic_name}_script.json'
     if not script_path.exists():
         # Fallback to just script.json
         script_path = Path('static/data') / 'parallel_db_script.json'
         if not script_path.exists():
-            raise FileNotFoundError(f"No script file found for topic {topic}")
+            raise FileNotFoundError(f"No script file found for topic {topic_name}")
     
     with open(script_path) as f:
-        return json.load(f)
+        script_data = json.load(f)
+    
+    # Enhance the script with interactive elements
+    script_data = enhance_script_with_interactive_elements(script_data, topic_name)
+    
+    return script_data
+
+def enhance_script_with_interactive_elements(script_data: Dict, topic: str) -> Dict:
+    """Enhance the script with interactive, teacher-like elements"""
+    # Get the original script
+    original_script = script_data.get('script', '')
+    
+    # Only enhance if the script doesn't already have interactive elements
+    if not any(phrase in original_script for phrase in 
+              ["Do you understand", "Can you see", "What do you think", "Let's consider", "?"]):
+        
+        # Add interactive elements to the script
+        paragraphs = original_script.split('\n\n')
+        enhanced_paragraphs = []
+        
+        # Add interactive elements to appropriate paragraphs
+        for i, paragraph in enumerate(paragraphs):
+            enhanced_paragraph = paragraph
+            
+            # Add a question after the first paragraph
+            if i == 0 and len(paragraphs) > 1:
+                enhanced_paragraph += f" Do you understand how this works?"
+            
+            # Add a reflective prompt in the middle
+            elif i == len(paragraphs) // 2 and len(paragraphs) > 2:
+                enhanced_paragraph += f" What do you think would happen if we modified this component?"
+            
+            # Add a comprehension check near the end
+            elif i == len(paragraphs) - 1 and len(paragraphs) > 1:
+                enhanced_paragraph += f" Can you see why this architecture is designed this way?"
+            
+            enhanced_paragraphs.append(enhanced_paragraph)
+        
+        # Add a final reflection prompt
+        if len(paragraphs) > 0:
+            enhanced_paragraphs.append("Take a moment to think about how this concept relates to other database architectures we've discussed.")
+        
+        # Update the script
+        script_data['script'] = '\n\n'.join(enhanced_paragraphs)
+    
+    return script_data
 
 def generate_word_timings(text: str, audio_duration: int) -> List[WordTiming]:
     """Generate word-level timings for the narration"""
@@ -228,31 +332,33 @@ def generate_word_timings(text: str, audio_duration: int) -> List[WordTiming]:
 
 @app.post("/api/visualization", response_model=VisualizationData, tags=["Visualization"])
 async def get_visualization(request: VisualizationRequest):
-    """Get visualization data, JSX code, narration and animation timestamps for a specific topic"""
-    logging.info(f"Received visualization request for topic: {request.topic}")
+    topic_id = request.topic
+    topic_name = get_topic_name(topic_id)
+    
+    logging.info(f"Received visualization request for topic ID: {topic_id}, mapped to: {topic_name}")
     
     valid_topics = [
         'schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 
         'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 
         'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 
-        'mobiledb', 'gis']
+        'mobiledb', 'gis', 'businesspolicy']
     
-    if request.topic not in valid_topics:
-        error_msg = f"Invalid topic '{request.topic}'. Must be one of: {', '.join(valid_topics)}"
+    if topic_name not in valid_topics:
+        error_msg = f"Invalid topic '{topic_name}' (ID: {topic_id}). Must be one of: {', '.join(valid_topics)}"
         logging.error(error_msg)
         raise HTTPException(status_code=400, detail=error_msg)
     
     try:
         # Load visualization data
-        data = load_visualization_data(request.topic)
+        data = load_visualization_data(topic_name)
         
         # Load JSX code
-        jsx_path = Path('src/components') / f'{request.topic.capitalize()}Visualization.jsx'
+        jsx_path = Path('src/components') / f'{topic_name.capitalize()}Visualization.jsx'
         if not jsx_path.exists():
-            jsx_path = Path('static/js') / f'{request.topic}Visualization.jsx'
+            jsx_path = Path('static/js') / f'{topic_name}Visualization.jsx'
         
         if not jsx_path.exists():
-            error_msg = f"JSX code not found for topic '{request.topic}'"
+            error_msg = f"JSX code not found for topic '{topic_name}' (ID: {topic_id})"
             logging.error(error_msg)
             raise HTTPException(status_code=404, detail=error_msg)
         
@@ -260,7 +366,7 @@ async def get_visualization(request: VisualizationRequest):
             jsx_code = f.read()
             
             # For test visualization, use a simple component
-            if request.topic == 'test':
+            if topic_name == 'test':
                 jsx_code = '''
                 (props) => {
                     const { data } = props;
@@ -297,11 +403,10 @@ async def get_visualization(request: VisualizationRequest):
         narration_timestamps = None
         animation_states = None
         try:
-            script_data = load_narration_script(request.topic)
+            script_data = load_narration_script(topic_name)
             narration = script_data.get('script', '')
             narration_timestamps = script_data.get('narration_timestamps', [])
             
-            # Handle both node_id and node_ids in the timestamps
             if narration_timestamps:
                 for timestamp in narration_timestamps:
                     if 'node_ids' in timestamp and 'node_id' not in timestamp:
@@ -309,46 +414,50 @@ async def get_visualization(request: VisualizationRequest):
             
             animation_states = script_data.get('animation_states', [])
             
-            # Validate that timestamps and animation states are properly synced
             if len(narration_timestamps) != len(animation_states):
-                logging.warning(f"Mismatch between narration timestamps and animation states for topic: {request.topic}")
+                logging.warning(f"Mismatch between narration timestamps and animation states for topic: {topic_name}")
             
-            logging.info(f"Successfully loaded narration and animation data for topic: {request.topic}")
+            logging.info(f"Successfully loaded narration and animation data for topic: {topic_name}")
         except FileNotFoundError:
-            logging.warning(f"No narration script found for topic: {request.topic}")
+            logging.warning(f"No narration script found for topic: {topic_name}")
         except Exception as e:
-            logging.error(f"Error loading narration for topic {request.topic}: {str(e)}")
+            logging.error(f"Error loading narration for topic {topic_name}: {str(e)}")
         
         response_data = VisualizationData(
             nodes=data.nodes,
             edges=data.edges,
             jsx_code=jsx_code,  
-            topic=request.topic,
+            topic=topic_name, 
+            topic_name=topic_name,
+            topic_id=topic_id,
             narration=narration,
             narration_timestamps=narration_timestamps,
             animation_states=animation_states
         )
         
-        logging.info(f"Successfully loaded visualization data and JSX code for topic: {request.topic}")
+        logging.info(f"Successfully loaded visualization data and JSX code for topic: {topic_name}")
         return response_data
         
     except FileNotFoundError as e:
-        error_msg = f"Visualization data not found for topic '{request.topic}': {str(e)}"
+        error_msg = f"Visualization data not found for topic '{topic_name}' (ID: {topic_id}): {str(e)}"
         logging.error(error_msg)
         raise HTTPException(status_code=404, detail=error_msg)
     except Exception as e:
-        error_msg = f"Error loading visualization for topic '{request.topic}': {str(e)}"
+        error_msg = f"Error loading visualization for topic '{topic_name}' (ID: {topic_id}): {str(e)}"
         logging.error(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
 @app.post("/api/narration/{topic}", response_model=NarrationData, tags=["Narration"])
 async def generate_narration(topic: str, request: Request):
     try:
-        logging.info(f"Received narration request for topic: {topic}")
+        topic_name = get_topic_name(topic)
+        topic_id = topic  # Keep the original topic ID
+        logging.info(f"Received narration request for topic ID: {topic_id}, mapped to: {topic_name}")
         
         # Validate topic
-        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 'mobiledb', 'gis']:            
-            raise HTTPException(status_code=400, detail="Invalid topic")
+        valid_topics = ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 'mobiledb', 'gis', 'businesspolicy']
+        if topic_name not in valid_topics:            
+            raise HTTPException(status_code=400, detail=f"Invalid topic '{topic_name}' (ID: {topic_id})")
 
         # Get request body
         try:
@@ -363,9 +472,12 @@ async def generate_narration(topic: str, request: Request):
             logging.error("No text provided in request body")
             raise HTTPException(status_code=400, detail="Text is required in request body")
 
+        # Make the narration more interactive and teacher-like if it's not already
+        text = enhance_narration_text(text, topic_name)
+
         # Create a hash of the text to use as a unique identifier
         text_hash = hashlib.md5(text.encode()).hexdigest()
-        cached_audio_filename = f'{topic}_narration_{text_hash}.mp3'
+        cached_audio_filename = f'{topic_name}_narration_{text_hash}.mp3'
         cached_audio_path = AUDIO_DIR / cached_audio_filename
 
         # Check if audio file already exists
@@ -379,7 +491,7 @@ async def generate_narration(topic: str, request: Request):
 
             # Load visualization data for node highlighting
             try:
-                visualization_data = load_visualization_data(topic)
+                visualization_data = load_visualization_data(topic_name)
                 nodes = visualization_data.nodes
             except Exception as e:
                 logging.warning(f"Could not load visualization data for highlighting: {e}")
@@ -414,12 +526,15 @@ async def generate_narration(topic: str, request: Request):
                 audio_url=audio_url,
                 duration=int(current_time),
                 word_timings=word_timings,
-                script=text
+                script=text,
+                topic=topic_name,
+                topic_name=topic_name,
+                topic_id=topic_id
             )
             logging.info(f"Using cached audio file: {audio_url}")
             return response_data
 
-        logging.info(f"Generating new audio for topic {topic} with text length: {len(text)}")
+        logging.info(f"Generating new audio for topic {topic_name} with text length: {len(text)}")
 
         # Check for OpenAI API key
         api_key = os.environ.get('OPENAI_API_KEY')
@@ -430,72 +545,95 @@ async def generate_narration(topic: str, request: Request):
         logging.info("OpenAI API key found, proceeding with audio generation")
 
         try:
-            # Generate audio using OpenAI's text-to-speech
-            logging.info("Calling OpenAI TTS API...")
-            audio_response = openai_client.audio.speech.create(
-                model="tts-1",
-                voice="alloy",
-                input=text,
-                speed=1.0
-            )
-            logging.info("Successfully received audio from OpenAI")
-
+            # Import AsyncOpenAI client for realtime API
+            from openai import AsyncOpenAI
+            
+            # Initialize AsyncOpenAI client
+            async_client = AsyncOpenAI(api_key=api_key)
+            
+            # Generate audio using OpenAI's text-to-speech with realtime API
+            logging.info("Calling OpenAI TTS API with realtime streaming...")
+            
+            # Collect audio chunks
+            audio_chunks = []
+            async for chunk in stream_text_to_speech(text, voice="alloy"):
+                # Skip the header chunk which is JSON
+                if isinstance(chunk, bytes) and not (chunk.startswith(b'{')):
+                    audio_chunks.append(chunk)
+            
+            # Combine all chunks
+            audio_content = b''.join(audio_chunks)
+            
             # Save audio file with text hash
             logging.info(f"Saving audio to {cached_audio_path}")
             with open(cached_audio_path, 'wb') as f:
-                f.write(audio_response.content)
+                f.write(audio_content)
             logging.info("Successfully saved audio file")
-
-            # Rest of the existing code for duration calculation and word timing generation
-            words = text.split()
-            word_count = len(words)
-            duration_ms = int((word_count / 150) * 60 * 1000)
-
+        except Exception as openai_error:
+            logging.warning(f"OpenAI TTS failed: {str(openai_error)}. Falling back to gTTS.")
             try:
-                visualization_data = load_visualization_data(topic)
-                nodes = visualization_data.nodes
-            except Exception as e:
-                logging.warning(f"Could not load visualization data for highlighting: {e}")
-                nodes = []
-
-            word_timings = []
-            current_time = 0
-            
-            for word in words:
-                word_duration = (len(word) / 5) * (duration_ms / word_count)
-                if word.endswith(('.', '!', '?', ',')):
-                    word_duration *= 1.5
+                # Fallback to gTTS
+                from gtts import gTTS
                 
-                node_id = find_node_for_word(word, nodes)
-                
-                timing = WordTiming(
-                    word=word,
-                    start_time=int(current_time),
-                    end_time=int(current_time + word_duration),
-                    node_id=node_id
-                )
-                
-                word_timings.append(timing)
-                current_time += word_duration
+                logging.info("Using gTTS as fallback for audio generation")
+                tts = gTTS(text=text, lang='en', slow=False)
+                logging.info(f"Saving gTTS audio to {cached_audio_path}")
+                tts.save(str(cached_audio_path))
+                logging.info("Successfully saved gTTS audio file")
+            except Exception as gtts_error:
+                logging.error(f"gTTS fallback also failed: {str(gtts_error)}")
+                if cached_audio_path.exists():
+                    cached_audio_path.unlink()
+                raise HTTPException(status_code=500, detail=f"Error generating audio: {str(gtts_error)}")
 
-            base_url = str(request.base_url)
-            audio_url = f"{base_url}static/audio/{cached_audio_filename}"
-            
-            response_data = NarrationData(
-                audio_url=audio_url,
-                duration=int(current_time),
-                word_timings=word_timings,
-                script=text
-            )
-            logging.info(f"Audio URL generated: {audio_url}")
-            return response_data
+        # Rest of the existing code for duration calculation and word timing generation
+        words = text.split()
+        word_count = len(words)
+        duration_ms = int((word_count / 150) * 60 * 1000)
 
+        try:
+            visualization_data = load_visualization_data(topic_name)
+            nodes = visualization_data.nodes
         except Exception as e:
-            logging.error(f'Error in OpenAI API call or audio processing: {str(e)}')
-            # Clean up any partially created files
-            if cached_audio_path.exists():
-                cached_audio_path.unlink()
-            raise HTTPException(status_code=500, detail=f"Error generating audio: {str(e)}")
+            logging.warning(f"Could not load visualization data for highlighting: {e}")
+            nodes = []
+
+        # Generate word timings
+        word_timings = []
+        current_time = 0
+        
+        for word in words:
+            word_duration = (len(word) / 5) * (duration_ms / word_count)
+            if word.endswith(('.', '!', '?', ',')):
+                word_duration *= 1.5
+            
+            node_id = find_node_for_word(word, nodes)
+            
+            timing = WordTiming(
+                word=word,
+                start_time=int(current_time),
+                end_time=int(current_time + word_duration),
+                node_id=node_id
+            )
+            
+            word_timings.append(timing)
+            current_time += word_duration
+
+        # Construct the audio URL using the request base URL
+        base_url = str(request.base_url)
+        audio_url = f"{base_url}static/audio/{cached_audio_filename}"
+        
+        response_data = NarrationData(
+            audio_url=audio_url,
+            duration=int(current_time),
+            word_timings=word_timings,
+            script=text,
+            topic=topic_name,
+            topic_name=topic_name,
+            topic_id=topic_id
+        )
+        logging.info(f"Audio URL generated: {audio_url}")
+        return response_data
 
     except HTTPException as he:
         raise he
@@ -521,7 +659,7 @@ async def serve_audio(filename: str):
 def get_highlights(topic: str, timestamp: int):
     """Get component highlights for a specific timestamp"""
     try:
-        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 'mobiledb', 'gis']:
+        if topic not in ['schema', 'parallel_db', 'hierarchical', 'network', 'er', 'document', 'history', 'xml', 'entity', 'attribute', 'shared_memory', 'shared_disk', 'shared_nothing', 'distributed_database', 'oop_concepts', 'relational', 'relationalQuery', 'normalization', 'activedb', 'queryprocessing', 'mobiledb', 'gis', 'businesspolicy']:
 
             return JSONResponse(status_code=400, content={'error': 'Invalid topic'})
         # Load narration script to get component mappings and word timings
@@ -565,16 +703,18 @@ async def handle_doubt(request: DoubtRequest):
     try:
         # Load the current visualization data
         try:
-            current_data = load_visualization_data(request.topic)
+            topic_id = request.topic
+            topic_name = get_topic_name(topic_id)
+            current_data = load_visualization_data(topic_name)
             if not current_data:
-                raise HTTPException(status_code=404, detail=f"Visualization data not found for topic: {request.topic}")
+                raise HTTPException(status_code=404, detail=f"Visualization data not found for topic: {topic_name} (ID: {topic_id})")
         except Exception as e:
             logging.error(f"Error loading visualization data: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error loading visualization data: {str(e)}")
         
         # Create a description of the visualization
         try:
-            viz_description = f"This is a visualization of {request.topic} with the following components:\n"
+            viz_description = f"This is a visualization of {topic_name} with the following components:\n"
             for node in current_data.nodes:
                 node_desc = f"- {node.id}: {node.name}"
                 if node.type:
@@ -590,11 +730,12 @@ async def handle_doubt(request: DoubtRequest):
                 viz_description += "\n"
         except Exception as e:
             logging.error(f"Error creating visualization description: {str(e)}")
-            viz_description = f"A visualization about {request.topic}"
+            viz_description = f"A visualization about {topic_name}"
 
         # Prepare the context for the AI
         context = {
-            "topic": request.topic,
+            "topic": topic_name,
+            "topic_id": topic_id,
             "doubt": request.doubt,
             "current_time": request.current_time,
             "current_state": request.current_state or {},
@@ -605,45 +746,40 @@ async def handle_doubt(request: DoubtRequest):
             # Process the doubt using Claude
             response = anthropic_client.messages.create(
                 model="claude-3-opus-20240229",
-                max_tokens=2000,
+                max_tokens=1000,
                 temperature=0.7,
-                system="""You are an expert in database visualization and education. Your task is to:
-1. Provide clear, detailed explanations of database concepts
+                system="""You are an expert in database visualization and education. You are a skilled teacher who engages students through interactive explanations. Your task is to:
+1. Provide clear, concise explanations of database concepts
 2. Identify relevant components in visualizations
 3. Suggest visual highlights to emphasize important elements
-4. Give practical examples and analogies
-5. Make recommendations for better understanding
+4. Give brief practical examples
+5. Ask thoughtful questions to check understanding
+
+IMPORTANT: Keep your responses concise and focused. The total response should be under 300 words to ensure it can be converted to audio.
 
 Format your response in JSON with these sections:
 {
-    "explanation": "Main detailed explanation",
-    "additionalInfo": "Additional context and background",
+    "explanation": "Brief, clear explanation with 1-2 interactive questions",
+    "additionalInfo": "Additional context and background (optional)",
     "componentDetails": {
-        "componentName": "Specific details about this component",
-        ...
+        "componentName": "Brief details about this component (optional)"
     },
-    "examples": ["Practical example 1", "Example 2", ...],
-    "recommendations": ["Recommendation 1", "Recommendation 2", ...],
+    "examples": ["Brief practical example (optional)"],
+    "comprehensionQuestions": ["1-2 questions to check understanding"],
     "highlightElements": [
         {
             "id": "component_id",
             "type": "highlight",
             "emphasis": "normal|strong|subtle"
-        },
-        ...
+        }
     ]
 }
 
-IMPORTANT: If you need to include any JSX code in your response, use React.createElement() syntax instead of JSX tags.
-For example, instead of:
-<div className="example">Hello</div>
-
-Use:
-React.createElement("div", { className: "example" }, "Hello")
+Use a conversational, teacher-like tone throughout your explanation.
 """,
                 messages=[{
                     "role": "user",
-                    "content": f"""I'm looking at a visualization about {request.topic}. Here's my question: {request.doubt}
+                    "content": f"""I'm looking at a visualization about {topic_name} (ID: {topic_id}). Here's my question: {request.doubt}
                     
 Visualization structure:
 {viz_description}
@@ -655,12 +791,9 @@ Please help me understand this better by:
 1. Providing a clear explanation
 2. Suggesting which elements should be highlighted
 3. If needed, suggesting modifications to the visualization
+4. Including 1-2 questions to check my understanding
 
-Respond in JSON format with these fields:
-- explanation: Your explanation text
-- highlights: List of node IDs to highlight
-- modifications: Any suggested modifications to nodes/edges (or null if none)
-- new_narration: Updated narration text (or null if no change needed)"""
+IMPORTANT: Keep your response under 300 words total to ensure it can be converted to audio."""
                 }]
             )
             
@@ -721,13 +854,29 @@ Respond in JSON format with these fields:
                 for rec in ai_response["recommendations"]:
                     formatted_narration += f"• {rec}\n"
             
+            # Add comprehension questions
+            if "comprehensionQuestions" in ai_response and ai_response["comprehensionQuestions"]:
+                formatted_narration += "Check Your Understanding:\n"
+                for question in ai_response["comprehensionQuestions"]:
+                    formatted_narration += f"? {question}\n"
+                formatted_narration += "\n"
+            
+            # Add reflection prompts
+            if "reflectionPrompts" in ai_response and ai_response["reflectionPrompts"]:
+                formatted_narration += "For Deeper Understanding:\n"
+                for prompt in ai_response["reflectionPrompts"]:
+                    formatted_narration += f"→ {prompt}\n"
+            
             # Use the formatted narration or fallback to the original response
             narration_text = formatted_narration.strip() or ai_response.get("new_narration") or ai_response.get("explanation", "No explanation provided")
             
             doubt_response = DoubtResponse(
                 narration=narration_text,
                 highlights=highlights,
-                jsx_code=current_data.jsx_code
+                jsx_code=current_data.jsx_code,
+                topic=topic_name,  # Add the topic field with the topic name
+                topic_name=topic_name,
+                topic_id=topic_id
             )
             
             # Apply any suggested modifications to the visualization
@@ -748,22 +897,18 @@ Respond in JSON format with these fields:
                             len(doubt_response.narration.split()) * 500 
                         )
                     except Exception as e:
-                        logging.error(f"Error generating word timings: {str(e)}")
+                        logging.error(f"Error generating narration timestamps: {str(e)}")
             
             return doubt_response
             
         except Exception as e:
-            logging.error(f"Error preparing response: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error preparing response: {str(e)}")
+            logging.error(f"Error preparing doubt response: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error preparing doubt response: {str(e)}")
             
     except HTTPException as he:
         raise he
     except Exception as e:
-        logging.error(f"Unexpected error in handle_doubt: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
-
-    except Exception as e:
-        logging.error(f"Error handling doubt: {str(e)}")
+        logging.error(f"Unexpected error in doubt endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 def apply_modifications(current_data: dict, modifications: dict) -> dict:
@@ -818,13 +963,16 @@ async def process_doubt(request: Request):
     try:
         data = await request.json()
         doubt = data.get('doubt')
-        topic = data.get('topic')
+        topic_id = data.get('topic')
+        topic_name = get_topic_name(topic_id)
         current_state = data.get('currentState', {})
         relevant_nodes = data.get('relevantNodes', [])
         
+        logging.info(f"Processing doubt for topic ID: {topic_id}, mapped to: {topic_name}")
+        
         # Prepare visualization context
         visualization_context = f"""
-Current Topic: {topic}
+Current Topic: {topic_name} (ID: {topic_id})
 Current Visualization State:
 - Highlighted Elements: {current_state.get('highlightedElements', [])}
 - Current Time: {current_state.get('currentTime', 0)}ms
@@ -837,92 +985,105 @@ Current Narration:
 {current_state.get('currentNarration', '')}
 """
 
-        # Generate response using Claude
+        # Import AsyncOpenAI client for realtime API
+        from openai import AsyncOpenAI
+        
+        # Initialize AsyncOpenAI client
+        async_client = AsyncOpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+        
         try:
-            response = anthropic_client.messages.create(
-                model="claude-3-opus-20240229",
-                max_tokens=2000,
-                temperature=0.7,
-                system="""You are an expert in database visualization and education. Your task is to:
-1. Provide clear, detailed explanations of database concepts
+            # Use the OpenAI API for chat completions (non-streaming for REST API)
+            system_message = """You are an expert in database visualization and education. You are a skilled teacher who engages students through interactive explanations. Your task is to:
+1. Provide clear, concise explanations of database concepts
 2. Identify relevant components in visualizations
 3. Suggest visual highlights to emphasize important elements
-4. Give practical examples and analogies
-5. Make recommendations for better understanding
+4. Give brief practical examples
+5. Ask thoughtful questions to check understanding
+
+IMPORTANT: Keep your responses concise and focused. The total response should be under 300 words to ensure it can be converted to audio.
 
 Format your response in JSON with these sections:
 {
-    "explanation": "Main detailed explanation",
-    "additionalInfo": "Additional context and background",
+    "explanation": "Brief, clear explanation with 1-2 interactive questions",
+    "additionalInfo": "Additional context and background (optional)",
     "componentDetails": {
-        "componentName": "Specific details about this component",
-        ...
+        "componentName": "Brief details about this component (optional)"
     },
-    "examples": ["Practical example 1", "Example 2", ...],
-    "recommendations": ["Recommendation 1", "Recommendation 2", ...],
+    "examples": ["Brief practical example (optional)"],
+    "comprehensionQuestions": ["1-2 questions to check understanding"],
     "highlightElements": [
         {
             "id": "component_id",
             "type": "highlight",
             "emphasis": "normal|strong|subtle"
-        },
-        ...
+        }
     ]
 }
 
-IMPORTANT: If you need to include any JSX code in your response, use React.createElement() syntax instead of JSX tags.
-For example, instead of:
-<div className="example">Hello</div>
-
-Use:
-React.createElement("div", { className: "example" }, "Hello")
-""",
-                messages=[{
-                    "role": "user",
-                    "content": f"""User Question: {doubt}
+Use a conversational, teacher-like tone throughout your explanation.
+"""
+            user_message = f"""User Question: {doubt}
 
 Visualization Context:
 {visualization_context}
 
-Please provide a comprehensive response that:
-1. Directly answers the user's question
-2. Explains relevant concepts in detail
+Please provide a concise response that:
+1. Directly answers the user's question (be brief but thorough)
+2. Explains only the most relevant concepts
 3. References specific components in the visualization
-4. Provides practical examples
-5. Makes recommendations for deeper understanding
-6. Suggests which elements to highlight in the visualization"""
-                }]
+4. Includes 1-2 questions to check understanding
+5. Uses a conversational, teacher-like tone
+
+IMPORTANT: Keep your response under 300 words total to ensure it can be converted to audio."""
+
+            # Use the OpenAI API for chat completions (non-streaming for REST API)
+            response = await async_client.chat.completions.create(
+                model="gpt-4o-realtime-preview-2024-12-17",
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=500,
+                temperature=0.7
             )
             
-            # Parse Claude's response
+            # Extract the response text
+            response_text = response.choices[0].message.content
+            
+            # Parse the response as JSON
             try:
-                ai_response = json.loads(response.content[0].text)
-            except json.JSONDecodeError:
+                ai_response = json.loads(response_text)
+            except json.JSONDecodeError as json_error:
+                logging.error(f"JSON parsing error: {str(json_error)}")
+                logging.error(f"Response text: {response_text[:200]}...")
                 # Fallback to basic response if JSON parsing fails
                 ai_response = {
-                    "explanation": response.content[0].text,
+                    "explanation": response_text,
                     "highlightElements": []
                 }
 
             # Enhance the response with additional processing
-            enhanced_response = enhance_response(ai_response, topic, relevant_nodes)
+            enhanced_response = enhance_response(ai_response, topic_name, relevant_nodes)
             
-            return JSONResponse(content=enhanced_response)
+            # Add topic information to the response
+            enhanced_response["topic"] = topic_name
+            enhanced_response["topic_name"] = topic_name
+            enhanced_response["topic_id"] = topic_id
+            
+            return enhanced_response
 
         except Exception as e:
             logging.error(f"Error generating AI response: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error generating response: {str(e)}")
-
+            logging.error(f"Error traceback: {traceback.format_exc()}")
+            return {
+                "error": f"Error generating response: {str(e)}"
+            }
+    
     except Exception as e:
-        logging.error(f"Error processing doubt: {str(e)}")
-        return JSONResponse(
-            content={
-                "error": str(e),
-                "explanation": "I apologize, but I encountered an error processing your question. Please try rephrasing it.",
-                "highlightElements": []
-            },
-            status_code=500
-        )
+        logging.error(f"Error in doubt endpoint: {str(e)}")
+        return {
+            "error": str(e)
+        }
 
 def enhance_response(ai_response: dict, topic: str, relevant_nodes: list) -> dict:
     """Enhance the AI response with additional processing"""
@@ -944,11 +1105,16 @@ def enhance_response(ai_response: dict, topic: str, relevant_nodes: list) -> dic
                 }
 
     # Add section for related concepts
-    if topic in TOPIC_RELATIONSHIPS:
-        enhanced["relatedConcepts"] = TOPIC_RELATIONSHIPS[topic]
+    topic_name = get_topic_name(topic)  # Convert topic ID to name if needed
+    if topic_name in TOPIC_RELATIONSHIPS:
+        enhanced["relatedConcepts"] = TOPIC_RELATIONSHIPS[topic_name]
 
     # Add interactive elements suggestions
-    enhanced["interactiveElements"] = suggest_interactive_elements(topic, enhanced.get("explanation", ""))
+    enhanced["interactiveElements"] = suggest_interactive_elements(topic_name, enhanced.get("explanation", ""))
+    
+    # Add comprehension questions if not already present
+    if "comprehensionQuestions" not in enhanced or not enhanced["comprehensionQuestions"]:
+        enhanced["comprehensionQuestions"] = generate_comprehension_questions(topic_name, enhanced.get("explanation", ""))
 
     return enhanced
 
@@ -979,6 +1145,91 @@ def suggest_interactive_elements(topic: str, explanation: str) -> list:
 
     return suggestions
 
+def generate_comprehension_questions(topic: str, explanation: str) -> list:
+    """Generate comprehension questions based on the topic and explanation"""
+    questions = []
+    
+    # Generic questions based on topic
+    topic_questions = {
+        "schema": ["Can you identify the main components of a database schema?", 
+                  "How does a schema help in organizing database structure?"],
+        "parallel_db": ["What are the key advantages of parallel database processing?", 
+                       "How do parallel databases improve performance?"],
+        "hierarchical": ["How does data flow in a hierarchical database model?", 
+                        "What are the limitations of hierarchical databases?"],
+        "network": ["How does a network database differ from a hierarchical one?", 
+                   "What problem does the network model solve?"],
+        "er": ["Can you identify the entities and relationships in this diagram?", 
+              "How would you represent a many-to-many relationship in an ER diagram?"],
+        "document": ["What makes document databases different from relational databases?", 
+                    "When would you choose a document database over a relational one?"],
+        "relational": ["How do tables relate to each other in a relational database?", 
+                      "What is the purpose of primary and foreign keys?"],
+        "distributed_database": ["How does data consistency work in a distributed database?", 
+                               "What are the trade-offs between consistency and availability?"],
+        "shared_memory": ["How do multiple processors access shared memory?", 
+                         "What synchronization issues might arise in shared memory systems?"],
+        "shared_disk": ["What's the difference between shared disk and shared memory architectures?", 
+                       "How does shared disk architecture handle concurrent access?"],
+        "shared_nothing": ["Why is shared nothing architecture good for scalability?", 
+                          "How does data partitioning work in shared nothing systems?"]
+    }
+    
+    # Add topic-specific questions if available
+    if topic in topic_questions:
+        questions.extend(topic_questions[topic])
+    
+    # Add generic questions if we don't have enough
+    if len(questions) < 2:
+        generic_questions = [
+            "Do you understand how these components interact with each other?",
+            "Can you explain why this architecture is designed this way?",
+            "What would happen if one of these components failed?",
+            "How does this concept relate to what you already know about databases?",
+            "Can you think of a real-world application for this concept?"
+        ]
+        # Add generic questions to reach at least 2 questions
+        questions.extend(generic_questions[:max(0, 2 - len(questions))])
+
+    return questions[:3]  # Return at most 3 questions
+
+def enhance_narration_text(text: str, topic: str) -> str:
+    """Enhance narration text with interactive, teacher-like elements"""
+    # Only enhance if the text doesn't already have interactive elements
+    if not any(phrase in text for phrase in 
+              ["Do you understand", "Can you see", "What do you think", "Let's consider", "?"]):
+        
+        # Add interactive elements to the text
+        paragraphs = text.split('\n\n')
+        enhanced_paragraphs = []
+        
+        # Add interactive elements to appropriate paragraphs
+        for i, paragraph in enumerate(paragraphs):
+            enhanced_paragraph = paragraph
+            
+            # Add a question after the first paragraph
+            if i == 0 and len(paragraphs) > 1:
+                enhanced_paragraph += " Do you understand how this works?"
+            
+            # Add a reflective prompt in the middle
+            elif i == len(paragraphs) // 2 and len(paragraphs) > 2:
+                enhanced_paragraph += " What do you think would happen if we modified this component?"
+            
+            # Add a comprehension check near the end
+            elif i == len(paragraphs) - 1 and len(paragraphs) > 1:
+                enhanced_paragraph += " Can you see why this architecture is designed this way?"
+            
+            enhanced_paragraphs.append(enhanced_paragraph)
+        
+        # Add a final reflection prompt
+        if len(paragraphs) > 0:
+            enhanced_paragraphs.append("Take a moment to think about how this concept relates to other database architectures we've discussed.")
+        
+        # Update the text
+        text = '\n\n'.join(enhanced_paragraphs)
+    
+    return text
+
 # Topic relationships for suggesting related concepts
 TOPIC_RELATIONSHIPS = {
     "shared_memory": [
@@ -996,6 +1247,134 @@ TOPIC_RELATIONSHIPS = {
     # Add more topics as needed
 }
 
+# WebSocket endpoints for real-time audio streaming
+# These are being replaced by Socket.IO implementation in server.js
+# Keeping these commented out for reference
+# @app.websocket("/ws/narration/{topic}")
+# async def websocket_narration(websocket: WebSocket, topic: str):
+#     """
+#     WebSocket endpoint for real-time audio narration streaming.
+#     
+#     Args:
+#         websocket: The WebSocket connection
+#         topic: The topic for narration
+#     """
+#     await handle_websocket_connection(websocket, topic)
+# 
+# @app.websocket("/ws/doubt")
+# async def websocket_doubt(websocket: WebSocket):
+#     """
+#     WebSocket endpoint for real-time doubt handling.
+#     
+#     Args:
+#         websocket: The WebSocket connection
+#     """
+#     await handle_doubt_websocket(websocket)
+# 
+# @app.websocket("/ws/test")
+# async def websocket_test(websocket: WebSocket):
+#     """
+#     Simple WebSocket endpoint for testing connection.
+#     
+#     Args:
+#         websocket: The WebSocket connection
+#     """
+#     logging.info("Test WebSocket connection received")
+#     await websocket.accept()
+#     logging.info("Test WebSocket connection accepted")
+#     
+#     try:
+#         await websocket.send_json({"status": "connected", "message": "WebSocket connection successful"})
+#         logging.info("Test message sent")
+#     except Exception as e:
+#         logging.error(f"Error in test WebSocket: {str(e)}")
+#     finally:
+#         await websocket.close()
+#         logging.info("Test WebSocket connection closed")
+# 
+# @app.websocket("/ws/process-doubt")
+# async def websocket_process_doubt(websocket: WebSocket):
+#     """
+#     WebSocket endpoint for real-time doubt processing with audio streaming.
+#     """
+
+async def generate_word_timings(text: str, audio_duration: int, nodes: List[Dict] = None) -> List[Dict]:
+    """
+    Generate word timings for text-to-speech synchronization.
+    
+    Args:
+        text: The text to generate timings for
+        audio_duration: The duration of the audio in milliseconds
+        nodes: Optional list of nodes for highlighting
+        
+    Returns:
+        List of word timing objects
+    """
+    words = text.split()
+    word_count = len(words)
+    word_timings = []
+    current_time = 0
+    
+    for word in words:
+        word_duration = (len(word) / 5) * (audio_duration / word_count)
+        if word.endswith(('.', '!', '?', ',')):
+            word_duration *= 1.5
+        
+        node_id = None
+        if nodes:
+            word_lower = word.lower()
+            for node in nodes:
+                if node.get('name', '').lower() == word_lower or word_lower in node.get('name', '').lower():
+                    node_id = node.get('id')
+                    break
+        
+        timing = {
+            "word": word,
+            "start_time": int(current_time),
+            "end_time": int(current_time + word_duration),
+            "node_id": node_id
+        }
+        
+        word_timings.append(timing)
+        current_time += word_duration
+    
+    return word_timings
+
+@app.get("/src/components/{file_path:path}")
+async def get_jsx_component(file_path: str):
+    """Serve JSX component files from the src/components directory"""
+    file_path = Path("src/components") / file_path
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"Component file not found: {file_path}")
+    
+    content = file_path.read_text()
+    return Response(content=content, media_type="application/javascript")
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    import argparse
+    import sys
+    import json
+    
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Database Visualization API')
+    parser.add_argument('--topic', type=str, help='Topic to generate visualization for')
+    args = parser.parse_args()
+    
+    # If --topic is provided, generate visualization and print to stdout
+    if args.topic:
+        try:
+            visualization_data = load_visualization_data(args.topic)
+            # Convert to dict using dict() or model_dump() based on Pydantic version
+            try:
+                data_dict = visualization_data.model_dump()
+            except AttributeError:
+                data_dict = visualization_data.dict()
+            print(json.dumps(data_dict))
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error generating visualization: {str(e)}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # Otherwise, run the FastAPI app
+        uvicorn.run(app, host="127.0.0.1", port=8000)
