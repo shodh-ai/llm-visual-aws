@@ -10,7 +10,7 @@ export default defineConfig({
     assetsDir: 'assets',
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'src/index.jsx')
+        main: resolve(__dirname, 'static/js/index.jsx')
       }
     }
   },

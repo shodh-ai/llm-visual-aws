@@ -3,6 +3,50 @@ import { io } from 'socket.io-client';
 import VisualizationPanel from './VisualizationPanel';
 import ControlPanel from './ControlPanel';
 import ResponsePanel from './ResponsePanel';
+import DoubtBox from './DoubtBox';
+import '../styles/streaming.css';
+import AudioPlayer from './AudioPlayer';
+import RealtimeAudioPlayer from './RealtimeAudioPlayer';
+
+// Import visualization components
+import ERVisualization from './ERVisualization';
+import DocumentVisualization from './DocumentVisualization';
+import HierarchicalVisualization from './HierarchicalVisualization';
+import EntityVisualization from './EntityVisualization';
+import AttributeVisualization from './AttributeVisualization';
+import SharedMemoryVisualization from './Shared_memoryVisualization';
+import SharedDiskVisualization from './Shared_diskVisualization';
+import SharedNothingVisualization from './Shared_nothingVisualization';
+import DistributedDatabaseVisualization from './Distributed_databaseVisualization';
+import OOPConceptsVisualization from './Oop_conceptsVisualization';
+import RelationalQueryVisualization from './RelationalqueryVisualization';
+import NormalFormVisualization from './NormalizationVisualization';
+import ActiveDBVisualization from './ActivedbVisualization';
+import QueryProcessingVisualization from './QueryprocessingVisualization';
+import MobiledbVisualization from './MobiledbVisualization';
+import GISVisualization from './GisVisualization';
+import BusinessPolicyVisualization from './BusinessPolicyVisualization';
+
+// Define the VISUALIZATIONS object
+const VISUALIZATIONS = {
+  er: ERVisualization,
+  document: DocumentVisualization,
+  hierarchical: HierarchicalVisualization,
+  entity: EntityVisualization,
+  attribute: AttributeVisualization,
+  shared_memory: SharedMemoryVisualization,
+  shared_disk: SharedDiskVisualization,
+  shared_nothing: SharedNothingVisualization,
+  distributed_database: DistributedDatabaseVisualization,
+  oop_concepts: OOPConceptsVisualization,
+  relationalQuery: RelationalQueryVisualization,
+  normalization: NormalFormVisualization,
+  activedb: ActiveDBVisualization,
+  queryprocessing: QueryProcessingVisualization,
+  mobiledb: MobiledbVisualization,
+  gis: GISVisualization,
+  businesspolicy: BusinessPolicyVisualization
+};
 
 const TOPICS = [
   { id: 'er', name: 'Entity-Relationship Model' },
@@ -35,9 +79,27 @@ const App = () => {
   const [audioUrl, setAudioUrl] = useState(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [highlightedElements, setHighlightedElements] = useState([]);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [doubt, setDoubt] = useState('');
+  const [doubtResponse, setDoubtResponse] = useState(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   
   const audioRef = useRef(null);
   const audioChunks = useRef([]);
+  const animationFrameRef = useRef(null);
+  const startTimeRef = useRef(null);
+  
+  const [audioQueue, setAudioQueue] = useState([]);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const currentAudioRef = useRef(null);
+  
+  // Add state for timing chunks
+  const [timingChunks, setTimingChunks] = useState([]);
+  const [narrationTimestamps, setNarrationTimestamps] = useState([]);
+  
+  // Add state for realtime session
+  const [realtimeSession, setRealtimeSession] = useState(null);
   
   // Initialize Socket.IO connection
   useEffect(() => {
@@ -49,260 +111,648 @@ const App = () => {
       timeout: 20000,
       autoConnect: true
     });
-    
-    // Add connection event handlers
+
+    // Socket event handlers
     newSocket.on('connect', () => {
-      console.log('Connected to Socket.IO server with ID:', newSocket.id);
+      console.log('Connected to server');
       setIsConnected(true);
+      
+      // If this is the initial load, automatically select the ER model
+      if (isInitialLoad) {
+        setIsInitialLoad(false);
+        handleTopicChange('er');
+      }
     });
-    
-    newSocket.on('connect_error', (error) => {
-      console.error('Socket.IO connection error:', error);
-      setError('Failed to connect to the server. Please try again.');
-      setIsConnected(false);
-    });
-    
+
     newSocket.on('disconnect', () => {
-      console.log('Disconnected from Socket.IO server');
+      console.log('Disconnected from server');
       setIsConnected(false);
     });
-    
-    newSocket.on('error', (error) => {
-      console.error('Socket.IO error:', error);
-      setError(error.message || 'An error occurred');
-      setIsLoading(false);
-    });
-    
-    newSocket.on('visualization_data', (data) => {
+
+    newSocket.on('visualization_response', (data) => {
       console.log('Received visualization data:', data);
       setVisualizationData(data);
       setIsLoading(false);
     });
-    
-    newSocket.on('text_chunk', (chunk) => {
-      console.log('Received text chunk');
-      setResponse(prev => prev + chunk);
-    });
-    
-    newSocket.on('response_data', (data) => {
-      console.log('Received response data:', data);
-      if (data.explanation) {
-        setResponse(data.explanation);
-      }
-      if (data.highlightElements) {
-        setHighlightedElements(data.highlightElements.map(h => h.id));
-      }
-    });
-    
+
     newSocket.on('audio_chunk', (chunk) => {
-      console.log('Received audio chunk');
       audioChunks.current.push(chunk);
     });
-    
-    newSocket.on('end', (data) => {
-      console.log('Processing completed');
-      setIsLoading(false);
+
+    newSocket.on('audio_complete', (data) => {
+      const audioBlob = new Blob(audioChunks.current, { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(audioBlob);
+      setAudioUrl(url);
+      audioChunks.current = [];
       
-      // Create audio blob from chunks
-      if (audioChunks.current.length > 0) {
-        const blob = new Blob(audioChunks.current, { type: 'audio/mp3' });
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-        
-        // Clean up previous URL
-        return () => {
-          if (audioUrl) {
-            URL.revokeObjectURL(audioUrl);
-          }
-        };
+      if (data.word_timings) {
+        // Process word timings for highlighting
+        console.log('Word timings received:', data.word_timings);
       }
     });
-    
+
+    newSocket.on('doubt_response', (data) => {
+      console.log('Received doubt response:', data);
+      setDoubtResponse(data);
+      setIsLoading(false);
+    });
+
+    newSocket.on('error', (err) => {
+      console.error('Socket error:', err);
+      setError(`Error: ${err.message || 'Unknown error'}`);
+      setIsLoading(false);
+    });
+
     setSocket(newSocket);
-    
-    // Clean up on unmount
+
+    // Cleanup on unmount
     return () => {
-      newSocket.disconnect();
+      if (newSocket) {
+        newSocket.disconnect();
+      }
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
     };
-  }, []);
-  
-  // Handle topic selection
-  const handleTopicChange = (topic) => {
-    setSelectedTopic(topic);
-    setResponse('');
-    setHighlightedElements([]);
-    setAudioUrl(null);
-    audioChunks.current = [];
+  }, [isInitialLoad]);
+
+  // Add a useEffect to handle timing chunks
+  useEffect(() => {
+    if (!socket) return;
     
-    if (topic) {
-      loadVisualization(topic);
-    } else {
-      setVisualizationData(null);
-    }
-  };
-  
-  // Load visualization data
-  const loadVisualization = (topic) => {
-    setIsLoading(true);
-    setError(null);
-    
-    if (socket && isConnected) {
-      socket.emit('visualization', { topic });
-    } else {
-      // Fallback to REST API
-      fetch('/api/visualization', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ topic })
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`Failed to load visualization: ${response.statusText}`);
-        }
-        return response.json();
-      })
-      .then(data => {
-        setVisualizationData(data);
-        setIsLoading(false);
-      })
-      .catch(error => {
-        console.error('Error loading visualization:', error);
-        setError(error.message);
-        setIsLoading(false);
+    // Handle timing chunks
+    socket.on('timing_chunk', (data) => {
+      console.log(`Received timing chunk ${data.chunk_index + 1} of ${data.total_chunks}`);
+      
+      // Add the chunk to the state
+      setTimingChunks(prev => {
+        const newChunks = [...prev];
+        newChunks[data.chunk_index] = data.timestamps;
+        return newChunks;
       });
-    }
-  };
+    });
+    
+    return () => {
+      socket.off('timing_chunk');
+    };
+  }, [socket]);
   
-  // Handle doubt submission
-  const handleDoubtSubmit = (doubt) => {
-    if (!doubt.trim() || !selectedTopic || !socket) {
+  // Add a useEffect to assemble timing chunks when they're all received
+  useEffect(() => {
+    // Check if we have all chunks
+    if (timingChunks.length > 0 && !timingChunks.includes(undefined)) {
+      // Flatten the chunks into a single array
+      const allTimestamps = timingChunks.flat();
+      console.log(`Assembled ${allTimestamps.length} timestamps from ${timingChunks.length} chunks`);
+      
+      // Set the narration timestamps
+      setNarrationTimestamps(allTimestamps);
+      
+      // Clear the chunks
+      setTimingChunks([]);
+    }
+  }, [timingChunks]);
+  
+  // Update the useEffect that handles highlights to use narrationTimestamps
+  useEffect(() => {
+    if (narrationTimestamps.length > 0 && isPlaying) {
+      const highlights = narrationTimestamps.filter(
+        timing => timing.start_time <= currentTime && timing.end_time >= currentTime
+      ).map(timing => timing.node_id).flat().filter(Boolean);
+      
+      setHighlightedElements(highlights);
+    }
+  }, [currentTime, narrationTimestamps, isPlaying]);
+
+  // Auto-play narration when visualization data is loaded
+  useEffect(() => {
+    if (visualizationData && !isPlaying && audioRef.current) {
+      // Short delay to ensure everything is ready
+      const timer = setTimeout(() => {
+        handlePlayPause();
+      }, 500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [visualizationData]);
+
+  // Add a new useEffect for handling audio queue
+  useEffect(() => {
+    if (audioQueue.length > 0 && !isPlayingAudio) {
+      playNextAudio();
+    }
+  }, [audioQueue, isPlayingAudio]);
+
+  // Function to play the next audio in the queue
+  const playNextAudio = () => {
+    if (audioQueue.length === 0) {
+      setIsPlayingAudio(false);
       return;
     }
     
-    setIsLoading(true);
-    setError(null);
-    setResponse('');
-    setAudioUrl(null);
-    audioChunks.current = [];
+    setIsPlayingAudio(true);
     
-    socket.emit('process-doubt', {
-      topic: selectedTopic,
-      doubt: doubt,
-      current_state: {
-        highlightedElements: highlightedElements,
-        currentTime: 0,
-        isOriginalNarration: true,
-        currentNarration: ''
-      }
+    const nextAudio = audioQueue[0];
+    const audioBlob = new Blob([nextAudio], { type: 'audio/mpeg' });
+    const audioUrl = URL.createObjectURL(audioBlob);
+    
+    // Create a new audio element
+    const audio = new Audio(audioUrl);
+    currentAudioRef.current = audio;
+    
+    // Set up event listeners
+    audio.onended = () => {
+      URL.revokeObjectURL(audioUrl);
+      setAudioQueue(prev => prev.slice(1));
+      setIsPlayingAudio(false);
+    };
+    
+    audio.onerror = (e) => {
+      console.error('Audio playback error:', e);
+      URL.revokeObjectURL(audioUrl);
+      setAudioQueue(prev => prev.slice(1));
+      setIsPlayingAudio(false);
+    };
+    
+    // Play the audio
+    audio.play().catch(err => {
+      console.error('Failed to play audio:', err);
+      setIsPlayingAudio(false);
     });
   };
-  
-  // Handle audio playback
+
+  // Update the socket event handler for audio chunks
+  useEffect(() => {
+    if (!socket) return;
+    
+    // Handle audio chunks - we'll let AudioPlayer handle this now
+    socket.on('audio_chunk', (data) => {
+      console.log('App received audio chunk of size:', data.audio_data ? data.audio_data.length : 'unknown');
+      // We don't need to handle this here anymore since AudioPlayer will handle it
+      // setAudioQueue(prev => [...prev, data.audio_data]);
+    });
+    
+    return () => {
+      socket.off('audio_chunk');
+    };
+  }, [socket]);
+
+  const handleTopicChange = (topic) => {
+    setSelectedTopic(topic);
+    setDoubtResponse(null);
+    
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setHighlightedElements([]);
+    
+    // Immediately load a placeholder visualization while waiting for server
+    const placeholderData = getPlaceholderData(topic);
+    setVisualizationData(placeholderData);
+    
+    if (topic) {
+      loadVisualization(topic);
+    }
+  };
+
+  // Function to get placeholder data for instant rendering
+  const getPlaceholderData = (topic) => {
+    // Basic placeholder data for ER model
+    if (topic === 'er') {
+      return {
+        nodes: [
+          { id: "student", name: "Student", type: "entity", attributes: [
+            { name: "student_id", isKey: true },
+            { name: "name", isKey: false },
+            { name: "email", isKey: false }
+          ]},
+          { id: "course", name: "Course", type: "entity", attributes: [
+            { name: "course_id", isKey: true },
+            { name: "title", isKey: false },
+            { name: "credits", isKey: false }
+          ]},
+          { id: "enrollment", name: "Enrolls", type: "relationship" }
+        ],
+        edges: [
+          { source: "student", target: "enrollment", type: "participates" },
+          { source: "enrollment", target: "course", type: "participates" }
+        ],
+        topic: topic,
+        narration: "Loading narration...",
+        narration_timestamps: []
+      };
+    }
+    
+    // Placeholder data for Document Database
+    else if (topic === 'document') {
+      return {
+        nodes: [
+          { 
+            id: "user_collection", 
+            name: "Users Collection", 
+            type: "collection",
+            document: {
+              "_id": "user123",
+              "name": "John Doe",
+              "email": "john@example.com",
+              "preferences": {
+                "theme": "dark",
+                "notifications": true
+              },
+              "posts": [
+                {"id": "post1", "title": "First Post"},
+                {"id": "post2", "title": "Second Post"}
+              ]
+            }
+          },
+          { 
+            id: "post_collection", 
+            name: "Posts Collection", 
+            type: "collection",
+            document: {
+              "_id": "post1",
+              "title": "First Post",
+              "content": "This is the content of the first post",
+              "author_id": "user123",
+              "comments": [
+                {"user_id": "user456", "text": "Great post!"},
+                {"user_id": "user789", "text": "Thanks for sharing"}
+              ],
+              "tags": ["database", "nosql", "document"]
+            }
+          }
+        ],
+        edges: [
+          { source: "user_collection", target: "post_collection", type: "reference", description: "User -> Posts" }
+        ],
+        topic: topic,
+        narration: "Loading narration...",
+        narration_timestamps: []
+      };
+    }
+    
+    // Placeholder data for Hierarchical Database
+    else if (topic === 'hierarchical') {
+      return {
+        nodes: [
+          { id: "root", name: "University", type: "root" },
+          { id: "department1", name: "Computer Science", type: "branch" },
+          { id: "department2", name: "Mathematics", type: "branch" },
+          { id: "course1", name: "Database Systems", type: "leaf" },
+          { id: "course2", name: "Algorithms", type: "leaf" },
+          { id: "course3", name: "Calculus", type: "leaf" }
+        ],
+        edges: [
+          { source: "root", target: "department1", type: "parent-child" },
+          { source: "root", target: "department2", type: "parent-child" },
+          { source: "department1", target: "course1", type: "parent-child" },
+          { source: "department1", target: "course2", type: "parent-child" },
+          { source: "department2", target: "course3", type: "parent-child" }
+        ],
+        topic: topic,
+        narration: "Loading narration...",
+        narration_timestamps: []
+      };
+    }
+    
+    // Generic placeholder for other topics with a consistent structure
+    else {
+      return {
+        nodes: [
+          { id: `${topic}_node1`, name: `${topic.charAt(0).toUpperCase() + topic.slice(1)} Node 1`, type: "generic" },
+          { id: `${topic}_node2`, name: `${topic.charAt(0).toUpperCase() + topic.slice(1)} Node 2`, type: "generic" },
+          { id: `${topic}_node3`, name: `${topic.charAt(0).toUpperCase() + topic.slice(1)} Node 3`, type: "generic" }
+        ],
+        edges: [
+          { source: `${topic}_node1`, target: `${topic}_node2`, type: "connection" },
+          { source: `${topic}_node2`, target: `${topic}_node3`, type: "connection" }
+        ],
+        topic: topic,
+        narration: `Loading ${topic.replace('_', ' ')} visualization...`,
+        narration_timestamps: []
+      };
+    }
+  };
+
+  const loadVisualization = (topic) => {
+    if (!socket || !isConnected) {
+      setError('Not connected to server');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    console.log('Requesting visualization for topic:', topic);
+    socket.emit('visualization', { topic });
+  };
+
+  // Handle doubt submission
+  const handleDoubtSubmit = (doubtText) => {
+    if (!socket || !doubtText.trim() || !selectedTopic) return;
+    
+    setIsLoading(true);
+    setDoubtResponse(null);
+    setDoubt(doubtText);
+    
+    console.log('Submitting doubt:', doubtText);
+    socket.emit('doubt', {
+      topic: selectedTopic,
+      doubt: doubtText,
+      current_time: currentTime,
+      current_state: {
+        highlighted_elements: highlightedElements
+      }
+    });
+    
+    // Ensure we have visualization data for the selected topic
+    if (!visualizationData && selectedTopic) {
+      console.log('Requesting visualization data for topic:', selectedTopic);
+      socket.emit('visualization', { topic: selectedTopic });
+    }
+  };
+
   const handlePlayAudio = () => {
-    if (audioRef.current && audioUrl) {
-      if (isAudioPlaying) {
+    if (!audioUrl || !audioRef.current) return;
+    
+    if (isAudioPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play();
+    }
+    
+    setIsAudioPlaying(!isAudioPlaying);
+  };
+
+  const handlePlayPause = () => {
+    if (!visualizationData) return;
+    
+    if (isPlaying) {
+      cancelAnimationFrame(animationFrameRef.current);
+      setIsPlaying(false);
+      if (audioRef.current) {
         audioRef.current.pause();
-        setIsAudioPlaying(false);
-      } else {
-        audioRef.current.play()
-          .then(() => {
-            setIsAudioPlaying(true);
-          })
-          .catch(error => {
-            console.error('Error playing audio:', error);
-            setError('Audio playback failed. Please try again.');
-          });
+      }
+    } else {
+      // Reset to beginning if at the end
+      if (audioRef.current && audioRef.current.ended) {
+        audioRef.current.currentTime = 0;
+        setCurrentTime(0);
+      }
+      
+      startTimeRef.current = performance.now() - currentTime;
+      animate();
+      setIsPlaying(true);
+      
+      if (audioRef.current) {
+        audioRef.current.currentTime = currentTime / 1000;
+        audioRef.current.play().catch(err => {
+          console.error("Audio playback error:", err);
+          // Continue with animation even if audio fails
+          setIsAudioPlaying(false);
+        });
       }
     }
   };
-  
+
+  const animate = () => {
+    const now = performance.now();
+    const newTime = now - startTimeRef.current;
+    
+    setCurrentTime(newTime);
+    
+    // Check if animation should continue
+    if (visualizationData?.narration_timestamps) {
+      const lastTimestamp = visualizationData.narration_timestamps[
+        visualizationData.narration_timestamps.length - 1
+      ]?.end_time || 0;
+      
+      if (newTime < lastTimestamp) {
+        animationFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        setIsPlaying(false);
+      }
+    } else {
+      animationFrameRef.current = requestAnimationFrame(animate);
+    }
+  };
+
+  const renderVisualization = () => {
+    if (!visualizationData || !selectedTopic) return null;
+    
+    const VisualizationComponent = VISUALIZATIONS[selectedTopic];
+    
+    if (!VisualizationComponent) {
+      return <div>No visualization component available for {selectedTopic}</div>;
+    }
+    
+    return (
+      <VisualizationComponent
+        data={visualizationData}
+        highlightedElements={highlightedElements}
+        currentTime={currentTime}
+      />
+    );
+  };
+
+  // Add a new useEffect hook to handle streaming responses
+  useEffect(() => {
+    if (!socket) return;
+
+    // Handle streaming doubt chunks
+    socket.on('doubt_chunk', (data) => {
+      console.log('Received doubt chunk:', data);
+      // The DoubtBox component will handle displaying the chunks
+    });
+
+    // Handle completion of streaming
+    socket.on('doubt_complete', (data) => {
+      console.log('Doubt response complete:', data);
+      setDoubtResponse(data);
+      setIsLoading(false);
+      
+      // Update highlighted elements if provided
+      if (data.highlights && data.highlights.length > 0) {
+        setHighlightedElements(data.highlights);
+      }
+    });
+
+    return () => {
+      socket.off('doubt_chunk');
+      socket.off('doubt_complete');
+    };
+  }, [socket]);
+
+  // Update the socket event handler for realtime session
+  useEffect(() => {
+    if (!socket) return;
+    
+    socket.on('start_webrtc_session', (data) => {
+      console.log('WebRTC session request received:', data);
+      
+      // Only set realtimeSession if it's not already set
+      setRealtimeSession(prevSession => {
+        if (prevSession) {
+          console.log('Ignoring duplicate WebRTC session request, session already active');
+          return prevSession;
+        }
+        
+        // Ensure we have visualization data
+        if (!visualizationData && data.topic) {
+          console.log('Requesting visualization data for topic:', data.topic);
+          socket.emit('visualization', { topic: data.topic });
+        }
+        
+        // Set highlighted elements to empty array to reset any previous highlights
+        setHighlightedElements([]);
+        
+        return {
+          sessionId: data.sessionId,
+          topic: data.topic,
+          doubt: data.doubt,
+          visualizationData: visualizationData
+        };
+      });
+    });
+    
+    return () => {
+      socket.off('start_webrtc_session');
+    };
+  }, [socket, visualizationData]);
+
+  // Add a function to handle the completion of the narration
+  const handleNarrationComplete = (highlightedNodes) => {
+    console.log('Narration complete, returning to visualization view');
+    setRealtimeSession(null);
+    
+    // Update highlighted elements if provided
+    if (highlightedNodes && highlightedNodes.length > 0) {
+      console.log('Setting highlighted nodes:', highlightedNodes);
+      setHighlightedElements(highlightedNodes);
+    } else {
+      // Reset highlighted elements
+      setHighlightedElements([]);
+    }
+  };
+
   return (
-    <div className="container">
+    <div className="app-container">
       <header>
-        <h1>LLM Visualization</h1>
+        <h1>Database Visualization</h1>
         <div className="connection-status">
           {isConnected ? (
-            <span className="connected">Connected to server</span>
+            <span className="connected">Connected</span>
           ) : (
-            <span className="disconnected">Not connected to server</span>
+            <span className="disconnected">Disconnected</span>
           )}
         </div>
       </header>
       
-      <main>
-        <ControlPanel 
-          topics={TOPICS}
-          selectedTopic={selectedTopic}
-          onTopicChange={handleTopicChange}
-          onDoubtSubmit={handleDoubtSubmit}
-          isLoading={isLoading}
-          isConnected={isConnected}
-        />
-        
-        {error && (
-          <div className="error">
-            <p>{error}</p>
-          </div>
-        )}
-        
-        <div className="visualization-wrapper">
-          <VisualizationPanel 
-            data={visualizationData}
-            isLoading={isLoading}
-            highlightedElements={highlightedElements}
-            topic={selectedTopic}
-          />
-        </div>
-        
-        <ResponsePanel 
-          response={response}
-          audioUrl={audioUrl}
-          isAudioPlaying={isAudioPlaying}
-          onPlayAudio={handlePlayAudio}
-          audioRef={audioRef}
-        />
-      </main>
+      <ControlPanel
+        topics={TOPICS}
+        selectedTopic={selectedTopic}
+        onTopicChange={handleTopicChange}
+        isLoading={isLoading}
+        isPlaying={isPlaying}
+        onPlayPause={handlePlayPause}
+        hasVisualization={!!visualizationData}
+      />
       
-      <style jsx>{`
-        header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 20px;
-        }
-        
-        h1 {
-          color: var(--text-color);
-        }
-        
-        .connection-status {
-          font-size: 14px;
-        }
-        
-        .connected {
-          color: var(--success-color);
-        }
-        
-        .disconnected {
-          color: var(--error-color);
-        }
-        
-        main {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-        
-        .visualization-wrapper {
-          height: 500px;
-          border: 1px solid var(--border-color);
-          border-radius: 8px;
-          overflow: hidden;
-          background-color: white;
-        }
-      `}</style>
+      <div className="main-content">
+        {realtimeSession ? (
+          <>
+            <div className="visualization-container">
+              <VisualizationPanel>
+                {error ? (
+                  <div className="error">{error}</div>
+                ) : (
+                  renderVisualization()
+                )}
+                {isLoading && (
+                  <div className="loading-overlay">
+                    <div className="loading-spinner"></div>
+                  </div>
+                )}
+              </VisualizationPanel>
+            </div>
+            <div className="realtime-container">
+              <RealtimeAudioPlayer 
+                topic={realtimeSession.topic}
+                doubt={realtimeSession.doubt}
+                sessionId={realtimeSession.sessionId}
+                onComplete={handleNarrationComplete}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <VisualizationPanel>
+              {error ? (
+                <div className="error">{error}</div>
+              ) : (
+                renderVisualization()
+              )}
+              {isLoading && (
+                <div className="loading-overlay">
+                  <div className="loading-spinner"></div>
+                </div>
+              )}
+            </VisualizationPanel>
+            
+            <ResponsePanel
+              response={visualizationData?.narration || response}
+              audioUrl={audioUrl}
+              onPlayAudio={handlePlayAudio}
+              isAudioPlaying={isAudioPlaying}
+              audioRef={audioRef}
+              currentTime={currentTime}
+              highlightedWord={
+                narrationTimestamps.length > 0 ?
+                  narrationTimestamps.find(
+                    timing => timing.start_time <= currentTime && timing.end_time >= currentTime
+                  )?.word || '' :
+                  visualizationData?.narration_timestamps?.find(
+                    timing => timing.start_time <= currentTime && timing.end_time >= currentTime
+                  )?.word || ''
+              }
+            />
+            
+            <AudioPlayer socket={socket} />
+          </>
+        )}
+      </div>
+      
+      <DoubtBox
+        onSubmit={handleDoubtSubmit}
+        isLoading={isLoading}
+        doubtResponse={doubtResponse}
+        socket={socket}
+      />
+      
+      {audioUrl && (
+        <audio
+          ref={audioRef}
+          src={audioUrl}
+          onPlay={() => setIsAudioPlaying(true)}
+          onPause={() => setIsAudioPlaying(false)}
+          onEnded={() => {
+            setIsAudioPlaying(false);
+            setIsPlaying(false);
+          }}
+          style={{ display: 'none' }}
+        />
+      )}
     </div>
   );
 };

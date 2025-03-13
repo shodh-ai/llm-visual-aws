@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as d3 from 'd3';
-import DoubtBox from './DoubtBox';
 
 const VisualizationController = ({ 
   visualizationComponent: VisualizationComponent,
   data,
-  topic
+  topic,
+  onDoubtSubmit
 }) => {
   const [highlightedElements, setHighlightedElements] = useState([]);
   const [narration, setNarration] = useState('');
@@ -141,6 +141,7 @@ const VisualizationController = ({
     if (!audioRef.current) return;
 
     if (isPlaying) {
+      // Pause audio
       audioRef.current.pause();
       cancelAnimationFrame(animationFrameRef.current);
       // Store current position if playing original narration
@@ -152,8 +153,16 @@ const VisualizationController = ({
       if (isOriginalNarration && originalPlaybackPosition > 0) {
         audioRef.current.currentTime = originalPlaybackPosition / 1000;
       }
-      audioRef.current.play();
-      updateHighlights();
+      // Play audio and start animation
+      audioRef.current.play()
+        .then(() => {
+          // Start animation when audio starts playing
+          updateHighlights();
+        })
+        .catch(error => {
+          console.error('Error playing audio:', error);
+          handleAudioError(error);
+        });
     }
     setIsPlaying(!isPlaying);
   };
@@ -236,7 +245,14 @@ const VisualizationController = ({
     }
   };
 
+  // Use the passed onDoubtSubmit function if available, otherwise use the local one
   const handleDoubtSubmission = async (doubt) => {
+    if (onDoubtSubmit) {
+      // Use the parent component's doubt submission handler
+      return onDoubtSubmit(doubt);
+    }
+    
+    // Otherwise use the local implementation
     try {
         if (isPlaying && isOriginalNarration && audioRef.current) {
             setOriginalPlaybackPosition(audioRef.current.currentTime * 1000);
@@ -283,64 +299,14 @@ const VisualizationController = ({
             throw new Error(result.error);
         }
 
-        // Try to parse the response if it's a string
-        let parsedResult = result;
-        if (typeof result === 'string') {
-            try {
-                parsedResult = JSON.parse(result);
-            } catch (e) {
-                console.warn('Could not parse response as JSON, using as-is');
-                parsedResult = { explanation: result };
-            }
-        }
-
-        // Format the response for better readability
-        let formattedNarration = '';
+        // Format the response for display and audio generation
+        const formattedNarration = formatResponseForDisplay(doubt, result);
         
-        // Add the question for context
-        formattedNarration += `Q: ${doubt}\n\n`;
-        
-        // Add the main explanation
-        if (parsedResult.explanation) {
-            formattedNarration += parsedResult.explanation + '\n\n';
-        }
-
-        // Add any additional context or related information
-        if (parsedResult.additionalInfo) {
-            formattedNarration += parsedResult.additionalInfo + '\n\n';
-        }
-
-        // Add component details with improved formatting
-        if (parsedResult.componentDetails) {
-            formattedNarration += 'Key Components:\n';
-            Object.entries(parsedResult.componentDetails).forEach(([key, value]) => {
-                formattedNarration += `• ${key}: ${typeof value === 'string' ? value : value.description}\n`;
-            });
-            formattedNarration += '\n';
-        }
-
-        // Add examples section
-        if (parsedResult.examples?.length) {
-            formattedNarration += 'Examples:\n';
-            parsedResult.examples.forEach((example, i) => {
-                formattedNarration += `${i + 1}. ${example}\n`;
-            });
-            formattedNarration += '\n';
-        }
-
-        // Add recommendations section
-        if (parsedResult.recommendations?.length) {
-            formattedNarration += 'Recommendations:\n';
-            parsedResult.recommendations.forEach(rec => {
-                formattedNarration += `• ${rec}\n`;
-            });
-        }
-
         setNarration(formattedNarration);
         setIsOriginalNarration(false);
         
-        if (parsedResult.highlightElements) {
-            setHighlightedElements(parsedResult.highlightElements);
+        if (result.highlightElements && result.highlightElements.length > 0) {
+            setHighlightedElements(result.highlightElements);
         }
 
         if (formattedNarration) {
@@ -348,11 +314,10 @@ const VisualizationController = ({
         }
 
     } catch (error) {
-        console.error('Error processing doubt:', error);
-        setNarration(`I apologize, but I encountered an error while processing your question:\n${error.message}\n\nPlease try rephrasing your question or ask about a different aspect of the topic.`);
-        setIsOriginalNarration(false);
+        console.error('Error submitting doubt:', error);
+        setNarration(`Error: ${error.message || 'Unknown error occurred'}`);
     }
-};
+  };
 
   // Add components for enhanced features
   const renderInteractiveElements = () => {
@@ -441,59 +406,26 @@ const VisualizationController = ({
   return (
     <div className="visualization-controller">
       <div className="main-panel">
-        <div className="visualization-and-narration">
-          <div className="visualization-container">
-            <VisualizationComponent
-              data={data}
-              highlightedElements={highlightedElements}
-              ref={visualizationRef}
-            />
-            {renderInteractiveElements()}
-          </div>
-          {narration && (
-            <div className="narration-box">
-              <div className="narration-header">
-                <h3>Explanation</h3>
-                <div className="narration-controls">
-                  {!isOriginalNarration && (
-                    <button 
-                      className="restore-button"
-                      onClick={handleRestoreOriginalNarration}
-                    >
-                      Restore Original
-                    </button>
-                  )}
-                  <button 
-                    className="play-button"
-                    onClick={handlePlayPause}
-                    disabled={!audioUrl}
-                  >
-                    {isPlaying ? 'Pause' : 'Play'} Narration
-                  </button>
-                </div>
-              </div>
-              <div className="narration-text">
-                {narration}
-              </div>
-              {renderRelatedConcepts()}
-              {audioUrl && (
-                <audio
-                  ref={audioRef}
-                  src={audioUrl}
-                  onEnded={handleAudioEnd}
-                  onError={handleAudioError}
-                  style={{ display: 'none' }}
-                />
-              )}
-            </div>
-          )}
-        </div>
-        <div className="doubt-box-container">
-          <DoubtBox
-            topic={topic}
-            onSubmitDoubt={handleDoubtSubmission}
+        <div className="visualization-container full-width">
+          <VisualizationComponent
+            ref={visualizationRef}
+            data={{
+              nodes: data?.nodes || [],
+              edges: data?.edges || []
+            }}
+            activeHighlights={highlightedElements}
           />
+          {renderInteractiveElements()}
         </div>
+        {audioUrl && (
+          <audio
+            ref={audioRef}
+            src={audioUrl}
+            onEnded={handleAudioEnd}
+            onError={handleAudioError}
+            style={{ display: 'none' }}
+          />
+        )}
       </div>
       <style jsx>{`
         .visualization-controller {
@@ -509,14 +441,6 @@ const VisualizationController = ({
           height: 100%;
         }
 
-        .visualization-and-narration {
-          display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 20px;
-          flex: 1;
-          min-height: 0;
-        }
-
         .visualization-container {
           position: relative;
           border-radius: 8px;
@@ -524,124 +448,11 @@ const VisualizationController = ({
           background: #ffffff;
           box-shadow: 0 1px 3px rgba(0,0,0,0.1);
           height: 100%;
+          width: 100%;
         }
-
-        .narration-box {
-          background: #ffffff;
-          padding: 15px;
-          border-radius: 8px;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          overflow-y: auto;
-          max-height: 100%;
-        }
-
-        .narration-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-        }
-
-        .narration-header h3 {
-          margin: 0;
-          color: #2d3748;
-          font-size: 16px;
-          font-weight: 600;
-        }
-
-        .narration-controls {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-        }
-
-        .restore-button, .play-button {
-          padding: 4px 8px;
-          font-size: 12px;
-          background: transparent;
-          border-radius: 4px;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .restore-button {
-          color: #4299e1;
-          border: 1px solid #4299e1;
-        }
-
-        .restore-button:hover {
-          background: #4299e1;
-          color: white;
-        }
-
-        .play-button {
-          color: #48bb78;
-          border: 1px solid #48bb78;
-          opacity: 1;
-        }
-
-        .play-button:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .play-button:not(:disabled):hover {
-          background: #48bb78;
-          color: white;
-        }
-
-        .narration-text {
-          font-size: 14px;
-          line-height: 1.6;
-          color: #4a5568;
-          white-space: pre-wrap;
-        }
-
-        .doubt-box-container {
-          padding: 15px;
-          background: #ffffff;
-          border-radius: 8px;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-
-        .interactive-suggestions {
-          position: absolute;
-          bottom: 20px;
-          left: 20px;
-          z-index: 10;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .interactive-suggestion {
-          background: rgba(255, 255, 255, 0.9);
-          padding: 8px 12px;
-          border-radius: 6px;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 12px;
-          color: #4a5568;
-        }
-
-        .interactive-suggestion .icon {
-          width: 20px;
-          height: 20px;
-          background-size: contain;
-        }
-
-        .related-concepts {
-          margin-top: 20px;
-          padding-top: 20px;
-          border-top: 1px solid #e2e8f0;
-        }
-
-        .related-concepts h4 {
-          margin: 0 0 10px;
-          font-size: 14px;
-          color: #2d3748;
+        
+        .full-width {
+          grid-column: 1 / -1;
         }
 
         .concept-list {

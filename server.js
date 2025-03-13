@@ -6,6 +6,16 @@ import { dirname, join } from 'path';
 import cors from 'cors';
 import { spawn } from 'child_process';
 import 'dotenv/config';
+import { v4 as uuidv4 } from 'uuid';
+
+// Check for required environment variables
+if (!process.env.OPENAI_API_KEY) {
+  console.error('ERROR: OPENAI_API_KEY environment variable is not set');
+  console.error('Please set the OPENAI_API_KEY environment variable in your .env file');
+  process.exit(1);
+} else {
+  console.log('OpenAI API key found. Length:', process.env.OPENAI_API_KEY.length);
+}
 
 // Get the directory name
 const __filename = fileURLToPath(import.meta.url);
@@ -19,18 +29,82 @@ const io = new Server(httpServer, {
     origin: '*',
     methods: ['GET', 'POST'],
     credentials: true
-  },
-  transports: ['websocket', 'polling'],
-  pingTimeout: 60000,
-  pingInterval: 25000,
-  connectTimeout: 30000,
-  allowEIO3: true
+  }
 });
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(join(__dirname, 'client/dist')));
+
+// Cache for visualization data
+const visualizationCache = new Map();
+
+// Endpoint to get an ephemeral token for WebRTC connection
+app.get('/token', async (req, res) => {
+  try {
+    const topic = req.query.topic;
+    const doubt = req.query.doubt;
+    
+    if (!topic) {
+      return res.status(400).json({ error: 'Topic is required' });
+    }
+    
+    // Get visualization data for context
+    let visualizationData = null;
+    const cacheKey = `viz_${topic}`;
+    
+    if (visualizationCache.has(cacheKey)) {
+      visualizationData = visualizationCache.get(cacheKey);
+    } else {
+      // Fetch visualization data if not in cache
+      try {
+        const pythonProcess = spawn('python', ['app.py', '--topic', topic]);
+        let vizDataStr = '';
+        
+        pythonProcess.stdout.on('data', (data) => {
+          vizDataStr += data.toString();
+        });
+        
+        await new Promise((resolve, reject) => {
+          pythonProcess.on('close', (code) => {
+            if (code === 0 && vizDataStr) {
+              try {
+                visualizationData = JSON.parse(vizDataStr);
+                visualizationCache.set(cacheKey, visualizationData);
+                resolve();
+              } catch (error) {
+                reject(new Error('Failed to parse visualization data'));
+              }
+            } else {
+              reject(new Error('Failed to generate visualization data'));
+            }
+          });
+          
+          pythonProcess.stderr.on('data', (data) => {
+            console.error(`Python error: ${data}`);
+          });
+        });
+      } catch (error) {
+        console.error('Error fetching visualization data:', error);
+        // Continue without visualization data
+      }
+    }
+    
+    // Return the API key as an ephemeral token along with visualization context
+    return res.json({
+      client_secret: {
+        value: process.env.OPENAI_API_KEY
+      },
+      visualization_data: visualizationData,
+      topic: topic,
+      doubt: doubt
+    });
+  } catch (error) {
+    console.error('Error generating token:', error);
+    return res.status(500).json({ error: 'Failed to generate token' });
+  }
+});
 
 // Socket.IO connection handler
 io.on('connection', (socket) => {
@@ -40,6 +114,14 @@ io.on('connection', (socket) => {
   socket.on('visualization', async (data) => {
     try {
       console.log('Visualization request:', data);
+      
+      // Check cache first
+      const cacheKey = `viz_${data.topic}`;
+      if (visualizationCache.has(cacheKey)) {
+        console.log('Serving visualization from cache');
+        socket.emit('visualization_response', visualizationCache.get(cacheKey));
+        return;
+      }
       
       // Spawn Python process to handle visualization
       const pythonProcess = spawn('python', ['app.py', '--topic', data.topic]);
@@ -52,150 +134,125 @@ io.on('connection', (socket) => {
       
       pythonProcess.stderr.on('data', (data) => {
         console.error(`Python error: ${data}`);
-        socket.emit('error', { message: 'Error generating visualization' });
       });
       
       pythonProcess.on('close', (code) => {
-        if (code === 0) {
+        console.log(`Python process exited with code ${code}`);
+        
+        if (code === 0 && visualizationData) {
           try {
-            const jsonData = JSON.parse(visualizationData);
-            socket.emit('visualization_data', jsonData);
+            const parsedData = JSON.parse(visualizationData);
+            
+            // Cache the result
+            visualizationCache.set(cacheKey, parsedData);
+            
+            // Send to client
+            socket.emit('visualization_response', parsedData);
           } catch (error) {
             console.error('Error parsing visualization data:', error);
-            socket.emit('error', { message: 'Error parsing visualization data' });
+            socket.emit('error', { message: 'Failed to parse visualization data' });
           }
         } else {
-          console.error(`Python process exited with code ${code}`);
-          socket.emit('error', { message: 'Error generating visualization' });
+          socket.emit('error', { message: 'Failed to generate visualization' });
         }
       });
     } catch (error) {
       console.error('Error handling visualization request:', error);
-      socket.emit('error', { message: 'Server error' });
+      socket.emit('error', { message: error.message || 'An error occurred' });
     }
   });
 
-  // Handle doubt processing
-  socket.on('process-doubt', async (data) => {
+  // Handle doubt request - now signals the client to start a WebRTC session
+  socket.on('doubt', async (data) => {
     try {
-      console.log('Processing doubt:', data);
+      console.log('Doubt request:', data);
       
-      // Spawn Python process to handle doubt
-      const pythonProcess = spawn('python', ['socket_bridge.py', '--mode', 'doubt']);
+      // Generate a session ID
+      const sessionId = uuidv4();
       
-      // Send data to Python process
-      pythonProcess.stdin.write(JSON.stringify(data) + '\n');
+      // Check if we have visualization data in cache
+      const cacheKey = `viz_${data.topic}`;
+      let visualizationData = null;
       
-      // Handle text chunks
-      pythonProcess.stdout.on('data', (chunk) => {
-        const textChunk = chunk.toString();
-        console.log('Received from Python:', textChunk);
-        
-        // Split by newlines in case multiple JSON objects are received
-        const lines = textChunk.trim().split('\n');
-        
-        for (const line of lines) {
-          if (!line.trim()) continue;
+      if (visualizationCache.has(cacheKey)) {
+        visualizationData = visualizationCache.get(cacheKey);
+        console.log('Using cached visualization data');
+      } else {
+        // Fetch visualization data if not in cache
+        try {
+          const pythonProcess = spawn('python', ['app.py', '--topic', data.topic]);
+          let vizDataStr = '';
           
-          try {
-            const jsonData = JSON.parse(line.trim());
+          pythonProcess.stdout.on('data', (chunk) => {
+            vizDataStr += chunk.toString();
+          });
+          
+          await new Promise((resolve, reject) => {
+            pythonProcess.on('close', (code) => {
+              if (code === 0 && vizDataStr) {
+                try {
+                  visualizationData = JSON.parse(vizDataStr);
+                  visualizationCache.set(cacheKey, visualizationData);
+                  resolve();
+                } catch (error) {
+                  console.error('Error parsing visualization data:', error);
+                  reject(error);
+                }
+              } else {
+                reject(new Error('Failed to generate visualization data'));
+              }
+            });
             
-            if (jsonData.type === 'text_chunk') {
-              socket.emit('text_chunk', jsonData.content);
-            } else if (jsonData.type === 'audio_chunk') {
-              socket.emit('audio_chunk', Buffer.from(jsonData.content, 'base64'));
-            } else if (jsonData.type === 'response_data') {
-              socket.emit('response_data', jsonData.content);
-            } else if (jsonData.type === 'timing') {
-              socket.emit('timing', jsonData.content);
-            } else if (jsonData.type === 'end') {
-              socket.emit('end', jsonData.content || {});
-            } else if (jsonData.type === 'error') {
-              socket.emit('error', { message: jsonData.content });
-            }
-          } catch (error) {
-            console.error('Error parsing Python output:', error);
-            console.error('Problematic line:', line);
-            // Only emit as text if it looks like text, not a parsing error
-            if (line.length > 0 && !line.includes('Traceback') && !line.includes('Error:')) {
-              socket.emit('text_chunk', line);
-            }
-          }
+            pythonProcess.stderr.on('data', (data) => {
+              console.error(`Python error: ${data}`);
+            });
+          });
+        } catch (error) {
+          console.error('Error fetching visualization data:', error);
+          // Continue without visualization data
         }
-      });
+      }
       
-      pythonProcess.stderr.on('data', (data) => {
-        const errorText = data.toString();
-        console.error(`Python error: ${errorText}`);
-        
-        // Don't emit errors for INFO log messages
-        if (!errorText.includes('INFO:') && !errorText.includes('DEBUG:')) {
-          socket.emit('error', { message: 'Error processing doubt' });
-        }
-      });
+      // Send visualization data to client if available
+      if (visualizationData) {
+        socket.emit('visualization_response', visualizationData);
+      }
       
-      pythonProcess.on('close', (code) => {
-        if (code !== 0) {
-          console.error(`Python process exited with code ${code}`);
-          socket.emit('error', { message: 'Error processing doubt' });
-        }
-        socket.emit('end', {});
+      // Signal the client to start a WebRTC session
+      socket.emit('start_webrtc_session', {
+        sessionId,
+        topic: data.topic,
+        doubt: data.doubt
       });
     } catch (error) {
       console.error('Error handling doubt request:', error);
-      socket.emit('error', { message: 'Server error' });
+      socket.emit('error', { message: error.message || 'An error occurred' });
     }
   });
 
-  // Handle disconnection
+  // Handle disconnect
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });
 });
 
-// API routes
-app.post('/api/visualization', async (req, res) => {
-  try {
-    const { topic } = req.body;
-    
-    if (!topic) {
-      return res.status(400).json({ error: 'Topic is required' });
-    }
-    
-    // Spawn Python process to handle visualization
-    const pythonProcess = spawn('python', ['app.py', '--topic', topic]);
-    
-    let visualizationData = '';
-    
-    pythonProcess.stdout.on('data', (data) => {
-      visualizationData += data.toString();
-    });
-    
-    pythonProcess.stderr.on('data', (data) => {
-      console.error(`Python error: ${data}`);
-    });
-    
-    pythonProcess.on('close', (code) => {
-      if (code === 0) {
-        try {
-          const jsonData = JSON.parse(visualizationData);
-          res.json(jsonData);
-        } catch (error) {
-          console.error('Error parsing visualization data:', error);
-          res.status(500).json({ error: 'Error parsing visualization data' });
-        }
-      } else {
-        console.error(`Python process exited with code ${code}`);
-        res.status(500).json({ error: 'Error generating visualization' });
-      }
-    });
-  } catch (error) {
-    console.error('Error handling visualization request:', error);
-    res.status(500).json({ error: 'Server error' });
+// Upgrade HTTP connections to WebSocket
+httpServer.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+  
+  console.log(`WebSocket upgrade request for path: ${pathname}`);
+  
+  if (pathname.startsWith('/socket.io/')) {
+    console.log('Allowing Socket.IO WebSocket upgrade');
+    // Let Socket.IO handle its own upgrades
+    return;
+  } else {
+    console.log(`Rejecting WebSocket upgrade for unknown path: ${pathname}`);
+    socket.destroy();
   }
 });
 
-// Serve the React app for any other routes
+// Catch-all route to serve the frontend
 app.get('*', (req, res) => {
   res.sendFile(join(__dirname, 'client/dist/index.html'));
 });
