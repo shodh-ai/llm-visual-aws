@@ -28,6 +28,8 @@ const SharedMemoryVisualization = ({ data, highlightedElements }) => {
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
+    
+    console.log('Shared_memoryVisualization: Applying highlights:', highlightedElements);
 
     // Reset all highlights first
     svg.selectAll('.node')
@@ -48,42 +50,55 @@ const SharedMemoryVisualization = ({ data, highlightedElements }) => {
     // Apply new highlights if any
     if (highlightedElements && highlightedElements.length > 0) {
       highlightedElements.forEach(element => {
+        console.log('Shared_memoryVisualization: Highlighting element:', typeof element === 'object' ? element.id : element);
+        
+        // Get the element ID
+        const elementId = typeof element === 'object' ? element.id : element;
+        
         // Try to find the node by ID
-        let node = svg.select(`.node[data-node-id="${element.id}"]`);
+        let node = svg.select(`.node[data-node-id="${elementId}"]`);
         
         // If not found, try to find by name (for backwards compatibility)
         if (node.empty()) {
-          const nodeName = element.id.toUpperCase();
+          const nodeName = elementId.toUpperCase();
           node = svg.selectAll('.node').filter(function(d) {
-            return d.name === nodeName || d.type === element.id;
+            return d.name === nodeName || d.type === elementId;
           });
         }
 
         if (!node.empty()) {
+          console.log(`Shared_memoryVisualization: Found node for ID: ${elementId}`);
           node.raise(); // Bring highlighted nodes to front
           node.transition()
             .duration(300)
             .select('rect')
-            .style('stroke', '#4299e1')
+            .style('stroke', '#f56565')
             .style('stroke-width', '3px')
-            .style('filter', 'drop-shadow(0 0 5px rgba(66, 153, 225, 0.5))');
+            .style('filter', 'drop-shadow(0 0 5px rgba(245, 101, 101, 0.5))');
 
           // Highlight connected edges with updated styling
-          svg.selectAll('.connection')
+          const connectedEdges = svg.selectAll('.connection')
             .filter(function() {
               const path = d3.select(this);
               const sourceId = path.attr('data-source');
               const targetId = path.attr('data-target');
               const nodeId = node.attr('data-node-id');
               return sourceId === nodeId || targetId === nodeId;
-            })
-            .transition()
+            });
+            
+          console.log(`Shared_memoryVisualization: Found ${connectedEdges.size()} connected edges`);
+          
+          connectedEdges.transition()
             .duration(300)
-            .style('stroke', '#4299e1')
+            .style('stroke', '#f56565')
             .style('stroke-width', '3px')
             .style('stroke-opacity', 0.8);
+        } else {
+          console.log(`Shared_memoryVisualization: No node found for ID: ${elementId}`);
         }
       });
+    } else {
+      console.log('Shared_memoryVisualization: No highlights to apply');
     }
   }, [highlightedElements]);
 

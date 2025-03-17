@@ -324,202 +324,254 @@ def load_visualization_data(topic: str) -> VisualizationData:
             narration=f"Error loading visualization: {str(e)}"
         )
 
-def process_doubt(topic: str, doubt: str, stream=False) -> Union[DoubtResponse, Generator]:
-    """Process a doubt about a visualization.
-    
-    Args:
-        topic: The visualization topic
-        doubt: The user's doubt or question
-        stream: If True, return a generator that yields response chunks
-        
-    Returns:
-        Either a DoubtResponse object or a generator yielding response chunks
-    """
+def process_doubt(topic: str, doubt: str, current_state=None, stream=False) -> Union[DoubtResponse, Generator]:
+    """Process a doubt about a visualization topic."""
     try:
-        # Load the visualization data
-        viz_data = load_visualization_data(topic)
+        # Load visualization data for context
+        visualization_data = load_visualization_data(topic)
         
-        # Try to use OpenAI to generate a response
-        try:
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        # Initialize OpenAI client
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Define the function for highlighting elements
+        functions = [
+            {
+                "name": "highlight_elements",
+                "description": "Highlight specific elements in the visualization to explain concepts",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "element_ids": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "description": "IDs of the elements to highlight in the visualization"
+                        },
+                        "explanation": {
+                            "type": "string",
+                            "description": "Explanation of the highlighted elements and how they relate to the doubt"
+                        }
+                    },
+                    "required": ["element_ids", "explanation"]
+                }
+            }
+        ]
+        
+        # Prepare the messages for the API call
+        messages = [
+            {"role": "system", "content": f"""You are an AI assistant helping students understand database concepts through visualizations.
             
-            # Prepare the prompt
-            prompt = f"""
-            Topic: {topic}
-            Doubt: {doubt}
+            The current visualization is about: {topic.replace('_', ' ').title()}
             
-            Visualization data:
-            Nodes: {viz_data.nodes}
-            Edges: {viz_data.edges}
+            You have access to the following visualization data:
+            - Nodes: {[{"id": node.id, "name": node.name, "type": node.type} for node in visualization_data.nodes]}
+            - Edges: {[{"source": edge.source, "target": edge.target, "type": edge.type} for edge in visualization_data.edges]}
             
-            Please provide a clear explanation addressing this doubt about the visualization.
-            """
-            
-            # Find relevant nodes to highlight
-            highlights = []
-            for node in viz_data.nodes:
-                if node.name.lower() in doubt.lower() or node.id.lower() in doubt.lower():
-                    highlights.append(node.id)
-            
-            if stream:
-                # Return a generator that yields response chunks
-                def response_generator():
-                    try:
-                        # Create a streaming response
-                        stream_response = client.chat.completions.create(
-                            model="gpt-3.5-turbo",
-                            messages=[
-                                {"role": "system", "content": "You are a helpful assistant explaining database visualizations."},
-                                {"role": "user", "content": prompt}
-                            ],
-                            stream=True
-                        )
-                        
-                        # Collect the full response for word timings
-                        full_response = ""
-                        text_buffer = ""
-                        audio_buffer_size = 50  # Characters before generating audio
-                        
-                        # Yield each chunk as it comes in
-                        for chunk in stream_response:
-                            if chunk.choices[0].delta.content:
-                                content = chunk.choices[0].delta.content
-                                full_response += content
-                                text_buffer += content
+            When answering questions, use the highlight_elements function to highlight relevant parts of the visualization.
+            Be specific about which elements should be highlighted to help the student understand the concept.
+            """},
+            {"role": "user", "content": doubt}
+        ]
+        
+        # Add current state context if available
+        if current_state:
+            highlighted_elements = current_state.get("highlighted_elements", [])
+            if highlighted_elements:
+                messages.append({
+                    "role": "system", 
+                    "content": f"The student is currently looking at these highlighted elements: {highlighted_elements}"
+                })
+        
+        # Make the API call with function calling
+        if stream:
+            def response_generator():
+                try:
+                    # Stream the response
+                    response_stream = client.chat.completions.create(
+                        model="gpt-4",
+                        messages=messages,
+                        functions=functions,
+                        function_call="auto",
+                        stream=True
+                    )
+                    
+                    # Variables to collect the streamed response
+                    collected_messages = []
+                    function_name = None
+                    function_args = ""
+                    
+                    # Process the streamed response
+                    for chunk in response_stream:
+                        if chunk.choices[0].delta.function_call:
+                            # Handle function call
+                            if function_name is None and chunk.choices[0].delta.function_call.name:
+                                function_name = chunk.choices[0].delta.function_call.name
+                                yield json.dumps({"type": "function_call_start", "function": function_name}) + "\n"
+                            
+                            if chunk.choices[0].delta.function_call.arguments:
+                                function_args += chunk.choices[0].delta.function_call.arguments
+                                # Don't yield partial JSON as it might be invalid
+                        elif chunk.choices[0].delta.content:
+                            # Handle regular content
+                            content = chunk.choices[0].delta.content
+                            collected_messages.append(content)
+                            yield json.dumps({"type": "content", "content": content}) + "\n"
+                    
+                    # Process function call if it was made
+                    highlights = []
+                    explanation = ""
+                    
+                    if function_name == "highlight_elements" and function_args:
+                        try:
+                            args = json.loads(function_args)
+                            highlights = args.get("element_ids", [])
+                            explanation = args.get("explanation", "")
+                            
+                            # Generate word timings with node_id for highlighting
+                            narration_timestamps = []
+                            if explanation:
+                                # Basic word timing generation
+                                words = explanation.split()
+                                current_time = 0
                                 
-                                # Send text chunk immediately
-                                yield {
-                                    "type": "chunk",
-                                    "content": content,
-                                    "highlights": highlights
-                                }
+                                # Distribute highlights across the explanation
+                                highlight_indices = []
+                                if highlights:
+                                    # Distribute highlight points evenly through the explanation
+                                    step = len(words) // (len(highlights) + 1)
+                                    for i in range(len(highlights)):
+                                        highlight_indices.append((i + 1) * step)
                                 
-                                # If we have enough text, generate audio
-                                if len(text_buffer) >= audio_buffer_size:
-                                    # Generate audio for the buffer
-                                    audio_response = client.audio.speech.create(
-                                        model="tts-1",
-                                        voice="alloy",
-                                        input=text_buffer,
-                                        response_format="mp3"
+                                for i, word in enumerate(words):
+                                    word_duration = len(word) * 30 + 200  # Longer words take more time
+                                    
+                                    # Determine if this word should trigger a highlight
+                                    node_id = None
+                                    if highlight_indices and i in highlight_indices:
+                                        highlight_index = highlight_indices.index(i)
+                                        if highlight_index < len(highlights):
+                                            node_id = highlights[highlight_index]
+                                    
+                                    timing = WordTiming(
+                                        word=word,
+                                        start_time=current_time,
+                                        end_time=current_time + word_duration,
+                                        node_id=node_id
                                     )
                                     
-                                    # Yield audio chunk
-                                    yield {
-                                        "type": "audio_chunk",
-                                        "audio_data": audio_response.content.hex(),
-                                        "text": text_buffer
-                                    }
-                                    
-                                    # Clear the buffer
-                                    text_buffer = ""
-                        
-                        # Generate audio for any remaining text
-                        if text_buffer:
-                            try:
-                                audio_response = client.audio.speech.create(
-                                    model="tts-1",
-                                    voice="alloy",
-                                    input=text_buffer,
-                                    response_format="mp3"
-                                )
-                                
-                                yield {
-                                    "type": "audio_chunk",
-                                    "audio_data": audio_response.content.hex(),
-                                    "text": text_buffer
-                                }
-                            except Exception as e:
-                                logger.error(f"Error generating final audio chunk: {str(e)}")
-                        
-                        # Generate word timings for the full response
+                                    narration_timestamps.append(timing)
+                                    current_time += word_duration
+                            
+                            # Yield the final response with highlights
+                            yield json.dumps({
+                                "type": "final",
+                                "narration": explanation,
+                                "highlights": highlights,
+                                "narration_timestamps": [t.dict() for t in narration_timestamps]
+                            }) + "\n"
+                        except json.JSONDecodeError:
+                            # Handle invalid JSON in function arguments
+                            yield json.dumps({
+                                "type": "error",
+                                "error": "Invalid function arguments"
+                            }) + "\n"
+                    else:
+                        # If no function call was made, use the collected messages
+                        full_response = "".join(collected_messages)
                         narration_timestamps = generate_word_timings(full_response)
                         
-                        # Send word timings in smaller chunks to avoid large JSON objects
-                        if narration_timestamps:
-                            # Split the timestamps into chunks of 20
-                            timestamp_chunks = [narration_timestamps[i:i+20] for i in range(0, len(narration_timestamps), 20)]
-                            
-                            # Send each chunk separately
-                            for i, chunk in enumerate(timestamp_chunks):
-                                yield {
-                                    "type": "timing_chunk",
-                                    "chunk_index": i,
-                                    "total_chunks": len(timestamp_chunks),
-                                    "timestamps": [t.model_dump() for t in chunk]
-                                }
-                        
-                        # Yield the complete response without timestamps
-                        yield {
-                            "type": "complete",
+                        yield json.dumps({
+                            "type": "final",
                             "narration": full_response,
-                            "highlights": highlights
-                        }
-                    except Exception as e:
-                        logger.error(f"Error in streaming response: {str(e)}")
-                        yield {
-                            "type": "error",
-                            "content": f"Error generating response: {str(e)}"
-                        }
-                
-                return response_generator()
-            else:
-                # Get the response (non-streaming)
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant explaining database visualizations."},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                
-                narration = response.choices[0].message.content
-                
-                # Generate word timings
-                narration_timestamps = generate_word_timings(narration)
-                
-                return DoubtResponse(
-                    narration=narration,
-                    narration_timestamps=narration_timestamps,
-                    highlights=highlights
-                )
-        except Exception as api_error:
-            logger.error(f"OpenAI API error: {str(api_error)}")
-            # Fallback to a generic response
-            narration = f"I couldn't process your question about '{doubt}' due to a technical issue. The visualization shows {len(viz_data.nodes)} nodes and {len(viz_data.edges)} edges representing a {topic} diagram."
+                            "highlights": [],
+                            "narration_timestamps": [t.dict() for t in narration_timestamps]
+                        }) + "\n"
+                        
+                except Exception as e:
+                    logger.error(f"Error in streaming response: {str(e)}")
+                    yield json.dumps({"type": "error", "error": str(e)}) + "\n"
             
-            if stream:
-                def error_generator():
-                    yield {
-                        "type": "error",
-                        "content": narration
-                    }
-                return error_generator()
+            return response_generator()
+        else:
+            # Non-streaming response
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=messages,
+                functions=functions,
+                function_call="auto"
+            )
+            
+            # Process the response
+            message = response.choices[0].message
+            
+            # Check if a function was called
+            highlights = []
+            explanation = ""
+            
+            if message.function_call and message.function_call.name == "highlight_elements":
+                try:
+                    args = json.loads(message.function_call.arguments)
+                    highlights = args.get("element_ids", [])
+                    explanation = args.get("explanation", "")
+                except json.JSONDecodeError:
+                    # Handle invalid JSON
+                    explanation = "I couldn't process the highlighting function. " + (message.content or "")
             else:
-                # Generate word timings
-                narration_timestamps = generate_word_timings(narration)
+                # Use the regular content if no function was called
+                explanation = message.content
+            
+            # Generate word timings with node_id for highlighting
+            narration_timestamps = []
+            if explanation:
+                # Basic word timing generation
+                words = explanation.split()
+                current_time = 0
                 
-                return DoubtResponse(
-                    narration=narration,
-                    narration_timestamps=narration_timestamps,
-                    highlights=[]
-                )
+                # Distribute highlights across the explanation
+                highlight_indices = []
+                if highlights:
+                    # Distribute highlight points evenly through the explanation
+                    step = len(words) // (len(highlights) + 1)
+                    for i in range(len(highlights)):
+                        highlight_indices.append((i + 1) * step)
+                
+                for i, word in enumerate(words):
+                    word_duration = len(word) * 30 + 200  # Longer words take more time
+                    
+                    # Determine if this word should trigger a highlight
+                    node_id = None
+                    if highlight_indices and i in highlight_indices:
+                        highlight_index = highlight_indices.index(i)
+                        if highlight_index < len(highlights):
+                            node_id = highlights[highlight_index]
+                    
+                    timing = WordTiming(
+                        word=word,
+                        start_time=current_time,
+                        end_time=current_time + word_duration,
+                        node_id=node_id
+                    )
+                    
+                    narration_timestamps.append(timing)
+                    current_time += word_duration
+            
+            # Return the response
+            return DoubtResponse(
+                narration=explanation,
+                narration_timestamps=narration_timestamps,
+                highlights=highlights
+            )
     
     except Exception as e:
         logger.error(f"Error processing doubt: {str(e)}")
-        # Return a valid response even in case of error
-        error_message = f"Sorry, I couldn't process your question about '{doubt}'. Please try again or ask a different question."
-        
         if stream:
             def error_generator():
-                yield {
-                    "type": "error",
-                    "content": error_message
-                }
+                yield json.dumps({"type": "error", "error": str(e)}) + "\n"
             return error_generator()
         else:
             return DoubtResponse(
-                narration=error_message,
+                narration=f"Sorry, I encountered an error: {str(e)}",
                 narration_timestamps=[],
                 highlights=[]
             )
@@ -571,36 +623,45 @@ async def generate_streaming_audio(text, chunk_size=100):
             }
 
 def main():
-    """Main entry point for the script."""
+    """Main entry point for the application."""
     parser = argparse.ArgumentParser(description='Generate visualization data')
-    parser.add_argument("--topic", help="Topic to visualize")
-    parser.add_argument("--doubt", help="Doubt to process")
-    parser.add_argument("--stream", action="store_true", help="Use streaming mode for responses")
+    parser.add_argument('--topic', type=str, help='Visualization topic')
+    parser.add_argument('--doubt', action='store_true', help='Process a doubt')
     args = parser.parse_args()
     
-    try:
-        if args.topic and args.doubt:
-            # Process doubt
-            if args.stream:
-                # In streaming mode, print each chunk as it comes in
-                for chunk in process_doubt(args.topic, args.doubt, stream=True):
-                    # Ensure each JSON object is on its own line with a clear delimiter
-                    json_str = json.dumps(chunk)
-                    print(f"JSON_OBJECT_START{json_str}JSON_OBJECT_END", flush=True)
-                    sys.stdout.flush()
-            else:
-                # In non-streaming mode, print the complete response
-                result = process_doubt(args.topic, args.doubt)
-                print(json.dumps(result.model_dump()), flush=True)
-        elif args.topic:
-            # Generate visualization data
-            result = load_visualization_data(args.topic)
-            print(json.dumps(result.model_dump()), flush=True)
-        else:
-            parser.print_help()
-    except Exception as e:
-        logger.error(f"Error in main: {str(e)}")
-        sys.exit(1)
+    if args.doubt and args.topic:
+        # Process a doubt from stdin
+        try:
+            # Read the doubt request from stdin
+            doubt_request = json.loads(sys.stdin.read())
+            
+            # Extract the doubt and current state
+            doubt = doubt_request.get('doubt', '')
+            current_state = doubt_request.get('current_state', {})
+            
+            # Process the doubt
+            response = process_doubt(args.topic, doubt, current_state)
+            
+            # Print the response as JSON
+            print(json.dumps(response.dict() if hasattr(response, 'dict') else response))
+        except Exception as e:
+            logger.error(f"Error processing doubt from stdin: {str(e)}")
+            print(json.dumps({
+                "error": str(e),
+                "narration": f"Sorry, I encountered an error: {str(e)}",
+                "narration_timestamps": [],
+                "highlights": []
+            }))
+    elif args.topic:
+        # Generate visualization data for the topic
+        try:
+            visualization_data = load_visualization_data(args.topic)
+            print(visualization_data.json())
+        except Exception as e:
+            logger.error(f"Error generating visualization data: {str(e)}")
+            print(json.dumps({"error": str(e)}))
+    else:
+        parser.print_help()
 
 if __name__ == "__main__":
     main()

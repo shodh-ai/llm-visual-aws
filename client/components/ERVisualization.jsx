@@ -223,6 +223,7 @@ const ERVisualization = ({ data, highlightedElements, currentTime }) => {
         if (!svgRef.current || !highlightedElements) return;
         
         const svg = svgRef.current;
+        console.log('ERVisualization: Applying highlights:', highlightedElements);
         
         // Reset all highlights first
         svg.selectAll('.node')
@@ -234,12 +235,19 @@ const ERVisualization = ({ data, highlightedElements, currentTime }) => {
         // Apply highlights
         if (highlightedElements && highlightedElements.length > 0) {
             highlightedElements.forEach(id => {
-                svg.selectAll(`.node-${id}`)
+                console.log('ERVisualization: Highlighting node with ID:', id);
+                const nodeElements = svg.selectAll(`.node-${id}`);
+                
+                nodeElements
                     .classed('highlighted', true)
                     .selectAll('rect, polygon, circle')
-                    .style('stroke', '#f6ad55')
+                    .style('stroke', '#f56565')
                     .style('stroke-width', '4px');
+                
+                console.log(`ERVisualization: Found ${nodeElements.size()} elements for ID: ${id}`);
             });
+        } else {
+            console.log('ERVisualization: No highlights to apply');
         }
     }, [highlightedElements]);
 

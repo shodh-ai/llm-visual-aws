@@ -26,6 +26,11 @@ const VisualizationController = ({
   const [relatedConcepts, setRelatedConcepts] = useState([]);
   const [showingExample, setShowingExample] = useState(false);
   
+  // Add state for AI-driven highlights
+  const [aiHighlightedElements, setAiHighlightedElements] = useState([]);
+  const [highlightHistory, setHighlightHistory] = useState([]);
+  const [currentHighlightIndex, setCurrentHighlightIndex] = useState(0);
+  
   const visualizationRef = useRef(null);
   const audioRef = useRef(null);
   const animationFrameRef = useRef(null);
@@ -65,7 +70,22 @@ const VisualizationController = ({
         generateNarrationAudio(data.narration, true);
       }
     }
-  }, [data]);
+    
+    // Initialize highlighted elements from data if available
+    if (data?.narration_timestamps) {
+      // Extract node_id values from timestamps for initial highlighting
+      const initialHighlights = data.narration_timestamps
+        .filter(timestamp => timestamp.node_id)
+        .map(timestamp => timestamp.node_id)
+        .flat()
+        .filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+      
+      if (initialHighlights.length > 0) {
+        setHighlightedElements(initialHighlights);
+        setHighlightHistory([{ time: 0, elements: initialHighlights }]);
+      }
+    }
+  }, [data, topic]);
 
   const generateNarrationAudio = async (text, isOriginal = false) => {
     try {
@@ -101,382 +121,371 @@ const VisualizationController = ({
         if (!audioTest.ok) {
           throw new Error(`Audio file not accessible: ${audioTest.status}`);
         }
-      } catch (audioError) {
-        console.error('Audio file test failed:', audioError);
+      } catch (error) {
+        console.error('Audio file test failed:', error);
         throw new Error('Generated audio file is not accessible');
       }
 
-      console.log('Setting audio URL:', result.audio_url);
-      
-      // Store audio data in appropriate state based on whether it's original or not
-      if (isOriginal) {
-        setOriginalAudioUrl(result.audio_url);
-        setOriginalTimestamps(result.word_timings || []);
-        setAudioUrl(result.audio_url);
-        setNarrationTimestamps(result.word_timings || []);
-      } else {
-        setAudioUrl(result.audio_url);
-        setNarrationTimestamps(result.word_timings || []);
+      // Process word timings if available
+      let wordTimings = [];
+      if (result.word_timings) {
+        wordTimings = result.word_timings;
+        
+        // Cache word timings
+        if (isOriginal) {
+          localStorage.setItem(`${topic}_word_timings`, JSON.stringify(wordTimings));
+          localStorage.setItem(`${topic}_narration_text`, text);
+        }
       }
 
-    } catch (error) {
-      console.error('Error generating audio:', error);
-      console.error('Error details:', {
-        topic,
-        textLength: text?.length,
-        error: error.toString()
-      });
+      // Set state based on whether this is original or response narration
       if (isOriginal) {
-        setOriginalAudioUrl(null);
-        setOriginalTimestamps([]);
+        setOriginalAudioUrl(result.audio_url);
+        setOriginalTimestamps(wordTimings);
+        localStorage.setItem(`${topic}_audio_url`, result.audio_url);
       }
-      setAudioUrl(null);
-      setNarrationTimestamps([]);
-      // Show error to user
-      setNarration(prev => prev + '\n\nError generating audio: ' + error.message);
+      
+      setAudioUrl(result.audio_url);
+      setNarrationTimestamps(wordTimings);
+      
+      // If we have node_id values in the word timings, prepare highlight history
+      if (wordTimings.some(timing => timing.node_id)) {
+        const highlightSequence = [];
+        let lastTime = 0;
+        let lastElements = [];
+        
+        wordTimings.forEach(timing => {
+          if (timing.node_id) {
+            const elements = Array.isArray(timing.node_id) ? timing.node_id : [timing.node_id];
+            highlightSequence.push({
+              time: timing.start_time,
+              elements: elements
+            });
+            lastTime = timing.end_time;
+            lastElements = elements;
+          }
+        });
+        
+        // Add final state
+        if (highlightSequence.length > 0) {
+          highlightSequence.push({
+            time: lastTime + 1000, // Add 1 second after last highlight
+            elements: []
+          });
+        }
+        
+        setHighlightHistory(highlightSequence);
+        setCurrentHighlightIndex(0);
+      }
+
+      return result.audio_url;
+    } catch (error) {
+      console.error('Error generating narration audio:', error);
+      throw error;
     }
   };
 
   const handlePlayPause = () => {
-    if (!audioRef.current) return;
-
     if (isPlaying) {
-      // Pause audio
-      audioRef.current.pause();
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
       cancelAnimationFrame(animationFrameRef.current);
-      // Store current position if playing original narration
-      if (isOriginalNarration) {
-        setOriginalPlaybackPosition(audioRef.current.currentTime * 1000);
-      }
+      setIsPlaying(false);
     } else {
-      // If returning to original narration, set the time to stored position
-      if (isOriginalNarration && originalPlaybackPosition > 0) {
-        audioRef.current.currentTime = originalPlaybackPosition / 1000;
+      if (audioRef.current) {
+        // Reset to beginning if at the end
+        if (audioRef.current.ended) {
+          audioRef.current.currentTime = 0;
+          setCurrentTime(0);
+          setCurrentHighlightIndex(0);
+        }
+        
+        audioRef.current.play()
+          .then(() => {
+            animationFrameRef.current = requestAnimationFrame(updateHighlights);
+            setIsPlaying(true);
+          })
+          .catch(error => {
+            console.error('Error playing audio:', error);
+          });
       }
-      // Play audio and start animation
-      audioRef.current.play()
-        .then(() => {
-          // Start animation when audio starts playing
-          updateHighlights();
-        })
-        .catch(error => {
-          console.error('Error playing audio:', error);
-          handleAudioError(error);
-        });
     }
-    setIsPlaying(!isPlaying);
   };
 
   const updateHighlights = () => {
-    if (!audioRef.current || !narrationTimestamps.length) return;
-
-    const currentTime = audioRef.current.currentTime * 1000; // Convert to milliseconds
-    setCurrentTime(currentTime);
-
-    // Find current word timings
-    const currentTimings = narrationTimestamps.filter(
-      timing => currentTime >= timing.start_time && currentTime <= timing.end_time
-    );
-
-    // Update highlights based on current timings
-    if (currentTimings.length > 0) {
-      const elementsToHighlight = currentTimings
-        .filter(timing => timing.node_id) // Only include timings with node_ids
-        .map(timing => ({
-          id: timing.node_id,
-          type: 'highlight'
-        }));
-
-      if (elementsToHighlight.length > 0) {
-        setHighlightedElements(elementsToHighlight);
+    if (!audioRef.current || !isPlaying) return;
+    
+    const currentAudioTime = audioRef.current.currentTime * 1000; // Convert to ms
+    setCurrentTime(currentAudioTime);
+    
+    // Update highlights based on current time
+    if (highlightHistory.length > 0) {
+      // Find the appropriate highlight for the current time
+      let newIndex = currentHighlightIndex;
+      
+      // Check if we need to move forward in the highlight sequence
+      while (
+        newIndex < highlightHistory.length - 1 && 
+        currentAudioTime >= highlightHistory[newIndex + 1].time
+      ) {
+        newIndex++;
       }
-    } else {
-      // Clear highlights if no current timings
-      setHighlightedElements([]);
+      
+      // Check if we need to move backward (e.g., if user skipped back)
+      while (
+        newIndex > 0 && 
+        currentAudioTime < highlightHistory[newIndex].time
+      ) {
+        newIndex--;
+      }
+      
+      // Update highlight index and elements if changed
+      if (newIndex !== currentHighlightIndex) {
+        setCurrentHighlightIndex(newIndex);
+        setHighlightedElements(highlightHistory[newIndex].elements);
+      }
     }
-
+    
     // Continue animation loop
     animationFrameRef.current = requestAnimationFrame(updateHighlights);
   };
 
-  // Add cleanup for highlights when audio ends or errors
   const handleAudioEnd = () => {
     setIsPlaying(false);
-    setHighlightedElements([]);
     cancelAnimationFrame(animationFrameRef.current);
+    
+    // Reset highlights
+    setHighlightedElements([]);
   };
 
   const handleAudioError = (error) => {
     console.error('Audio playback error:', error);
     setIsPlaying(false);
-    setAudioUrl(null);
-    setHighlightedElements([]); // Clear highlights on error
-    // Attempt to regenerate audio
-    if (narration) {
-      console.log('Attempting to regenerate audio...');
-      generateNarrationAudio(narration);
+    cancelAnimationFrame(animationFrameRef.current);
+    
+    // Try to regenerate audio if there was an error
+    if (isOriginalNarration) {
+      generateNarrationAudio(originalNarration, true)
+        .catch(err => {
+          console.error('Failed to regenerate audio after error:', err);
+        });
+    } else {
+      generateNarrationAudio(narration, false)
+        .catch(err => {
+          console.error('Failed to regenerate audio after error:', err);
+        });
     }
   };
-
-  // Cleanup animation frame on unmount
-  useEffect(() => {
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, []);
 
   const handleRestoreOriginalNarration = () => {
     setNarration(originalNarration);
-    setHighlightedElements([]);
     setIsOriginalNarration(true);
-    // Use cached original audio if available
-    if (originalAudioUrl) {
-      setAudioUrl(originalAudioUrl);
-      setNarrationTimestamps(originalTimestamps);
-      // Reset current playback if audio is not playing
-      if (!isPlaying && audioRef.current) {
-        audioRef.current.currentTime = originalPlaybackPosition / 1000;
-      }
-    } else {
-      // Regenerate if not cached (shouldn't happen in normal flow)
-      generateNarrationAudio(originalNarration, true);
-    }
-  };
-
-  // Use the passed onDoubtSubmit function if available, otherwise use the local one
-  const handleDoubtSubmission = async (doubt) => {
-    if (onDoubtSubmit) {
-      // Use the parent component's doubt submission handler
-      return onDoubtSubmit(doubt);
+    
+    if (audioRef.current) {
+      audioRef.current.pause();
     }
     
-    // Otherwise use the local implementation
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    
+    setIsPlaying(false);
+    setCurrentTime(0);
+    
+    // Restore original audio and timestamps
+    setAudioUrl(originalAudioUrl);
+    setNarrationTimestamps(originalTimestamps);
+    
+    // Reset highlights
+    setHighlightedElements([]);
+    setCurrentHighlightIndex(0);
+  };
+
+  const handleDoubtSubmission = async (doubt) => {
+    if (!doubt.trim()) return;
+    
     try {
-        if (isPlaying && isOriginalNarration && audioRef.current) {
-            setOriginalPlaybackPosition(audioRef.current.currentTime * 1000);
-            audioRef.current.pause();
-            setIsPlaying(false);
-        }
-
-        setNarration("Processing your question...");
-
-        const response = await fetch('/api/process-doubt', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                doubt,
-                topic,
-                currentState: {
-                    data,
-                    highlightedElements,
-                    currentTime: audioRef.current?.currentTime * 1000 || 0,
-                    isOriginalNarration,
-                    currentNarration: narration
-                },
-                relevantNodes: data.nodes
-                    .filter(node => highlightedElements.some(h => h.id === node.id))
-                    .map(node => ({
-                        id: node.id,
-                        name: node.name,
-                        type: node.type,
-                        properties: node.properties || node.columns
-                    }))
-            })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || `Server error: ${response.status}`);
-        }
-
-        const result = await response.json();
+      // Call the parent's doubt submission handler
+      if (onDoubtSubmit) {
+        // Pass current state information
+        const currentState = {
+          topic,
+          doubt,
+          currentTime,
+          highlightedElements,
+          isOriginalNarration
+        };
         
-        if (result.error) {
-            throw new Error(result.error);
-        }
-
-        // Format the response for display and audio generation
-        const formattedNarration = formatResponseForDisplay(doubt, result);
+        // Show loading state
+        setNarration('Processing your question...');
         
-        setNarration(formattedNarration);
-        setIsOriginalNarration(false);
+        // Call the parent handler and wait for response
+        const response = await onDoubtSubmit(doubt, currentState);
         
-        if (result.highlightElements && result.highlightElements.length > 0) {
-            setHighlightedElements(result.highlightElements);
+        if (response) {
+          console.log('Received doubt response:', response);
+          
+          // Update narration with the response text
+          if (response.narration) {
+            setNarration(response.narration);
+            setIsOriginalNarration(false);
+          }
+          
+          // Process AI-driven highlights if available
+          if (response.highlights && Array.isArray(response.highlights)) {
+            setAiHighlightedElements(response.highlights);
+            setHighlightedElements(response.highlights);
+          }
+          
+          // Process narration timestamps if available
+          if (response.narration_timestamps) {
+            setNarrationTimestamps(response.narration_timestamps);
+            
+            // Build highlight history from timestamps
+            if (response.narration_timestamps.some(ts => ts.node_id)) {
+              const newHighlightHistory = [];
+              let lastElements = [];
+              
+              response.narration_timestamps.forEach(timing => {
+                if (timing.node_id) {
+                  const elements = Array.isArray(timing.node_id) ? timing.node_id : [timing.node_id];
+                  newHighlightHistory.push({
+                    time: timing.start_time,
+                    elements: elements
+                  });
+                  lastElements = elements;
+                }
+              });
+              
+              // Add final state
+              if (newHighlightHistory.length > 0) {
+                const lastTime = response.narration_timestamps[response.narration_timestamps.length - 1].end_time;
+                newHighlightHistory.push({
+                  time: lastTime + 1000, // Add 1 second after last highlight
+                  elements: []
+                });
+              }
+              
+              setHighlightHistory(newHighlightHistory);
+              setCurrentHighlightIndex(0);
+            }
+          }
+          
+          // Generate audio for the response
+          try {
+            await generateNarrationAudio(response.narration, false);
+          } catch (error) {
+            console.error('Error generating audio for response:', error);
+          }
         }
-
-        if (formattedNarration) {
-            generateNarrationAudio(formattedNarration, false);
-        }
-
+      }
     } catch (error) {
-        console.error('Error submitting doubt:', error);
-        setNarration(`Error: ${error.message || 'Unknown error occurred'}`);
+      console.error('Error handling doubt submission:', error);
+      setNarration('Sorry, there was an error processing your question. Please try again.');
     }
   };
 
-  // Add components for enhanced features
   const renderInteractiveElements = () => {
-    if (!interactiveElements.length) return null;
-
+    if (interactiveElements.length === 0) return null;
+    
     return (
-      <div className="interactive-suggestions">
-        {interactiveElements.map((element, index) => (
-          <div key={index} className="interactive-suggestion">
-            <span className={`icon ${element.type}`} />
-            <span className="message">{element.message}</span>
-          </div>
-        ))}
+      <div className="interactive-elements">
+        <h3>Interactive Elements</h3>
+        <ul>
+          {interactiveElements.map((element, index) => (
+            <li key={index} onClick={() => setHighlightedElements([element.id])}>
+              {element.name}
+            </li>
+          ))}
+        </ul>
       </div>
     );
   };
 
   const renderRelatedConcepts = () => {
-    if (!relatedConcepts.length) return null;
-
+    if (relatedConcepts.length === 0) return null;
+    
     return (
       <div className="related-concepts">
-        <h4>Related Concepts</h4>
-        <div className="concept-list">
+        <h3>Related Concepts</h3>
+        <ul>
           {relatedConcepts.map((concept, index) => (
-            <button
-              key={index}
-              className="concept-button"
-              onClick={() => handleDoubtSubmission(`Tell me about ${concept}`)}
-            >
-              {concept}
-            </button>
+            <li key={index}>
+              <a href={concept.url} target="_blank" rel="noopener noreferrer">
+                {concept.name}
+              </a>
+            </li>
           ))}
-        </div>
+        </ul>
       </div>
     );
   };
 
-  // Add a helper function to format the doubt response
   const formatDoubtResponse = (response) => {
-    const { explanation, components, examples, recommendations } = response;
-    let formatted = '';
-
-    if (explanation) {
-      formatted += `${explanation}\n\n`;
-    }
-
-    if (components?.length) {
-      formatted += 'Key Components:\n';
-      components.forEach(comp => {
-        formatted += `• ${comp.name}: ${comp.description}\n`;
-      });
-      formatted += '\n';
-    }
-
-    if (examples?.length) {
-      formatted += 'Examples:\n';
-      examples.forEach(example => {
-        formatted += `• ${example}\n`;
-      });
-      formatted += '\n';
-    }
-
-    if (recommendations?.length) {
-      formatted += 'Recommendations:\n';
-      recommendations.forEach(rec => {
-        formatted += `• ${rec}\n`;
-      });
-    }
-
-    return formatted;
+    if (!response) return null;
+    
+    return (
+      <div className="doubt-response">
+        <h3>AI Response</h3>
+        <p>{response}</p>
+      </div>
+    );
   };
-
-  // Add debug logging for render
-  useEffect(() => {
-    console.log('Current state:', {
-      hasNarration: Boolean(narration),
-      hasAudioUrl: Boolean(audioUrl),
-      isOriginalNarration,
-      originalPlaybackPosition,
-      audioUrl,
-      isPlaying
-    });
-  }, [narration, audioUrl, isPlaying, isOriginalNarration, originalPlaybackPosition]);
 
   return (
     <div className="visualization-controller">
-      <div className="main-panel">
-        <div className="visualization-container full-width">
+      <div className="visualization-container" ref={visualizationRef}>
+        {VisualizationComponent && (
           <VisualizationComponent
-            ref={visualizationRef}
-            data={{
-              nodes: data?.nodes || [],
-              edges: data?.edges || []
-            }}
-            activeHighlights={highlightedElements}
-          />
-          {renderInteractiveElements()}
-        </div>
-        {audioUrl && (
-          <audio
-            ref={audioRef}
-            src={audioUrl}
-            onEnded={handleAudioEnd}
-            onError={handleAudioError}
-            style={{ display: 'none' }}
+            data={data}
+            highlightedElements={highlightedElements}
+            currentTime={currentTime}
           />
         )}
       </div>
-      <style jsx>{`
-        .visualization-controller {
-          width: 100%;
-          height: 100%;
-          padding: 20px;
-        }
-
-        .main-panel {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-          height: 100%;
-        }
-
-        .visualization-container {
-          position: relative;
-          border-radius: 8px;
-          overflow: hidden;
-          background: #ffffff;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-          height: 100%;
-          width: 100%;
-        }
+      
+      <div className="controls">
+        <button onClick={handlePlayPause}>
+          {isPlaying ? 'Pause' : 'Play'}
+        </button>
         
-        .full-width {
-          grid-column: 1 / -1;
-        }
-
-        .concept-list {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-
-        .concept-button {
-          padding: 4px 8px;
-          background: #edf2f7;
-          border: none;
-          border-radius: 4px;
-          font-size: 12px;
-          color: #4a5568;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .concept-button:hover {
-          background: #e2e8f0;
-          color: #2d3748;
-        }
-      `}</style>
+        {!isOriginalNarration && (
+          <button onClick={handleRestoreOriginalNarration}>
+            Restore Original Narration
+          </button>
+        )}
+        
+        <div className="narration-text">
+          <p>{narration}</p>
+        </div>
+        
+        <audio
+          ref={audioRef}
+          src={audioUrl}
+          onEnded={handleAudioEnd}
+          onError={handleAudioError}
+          style={{ display: 'none' }}
+        />
+      </div>
+      
+      <div className="interactive-panel">
+        {renderInteractiveElements()}
+        {renderRelatedConcepts()}
+      </div>
+      
+      <div className="doubt-panel">
+        <input
+          type="text"
+          placeholder="Ask a question about this visualization..."
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              handleDoubtSubmission(e.target.value);
+              e.target.value = '';
+            }
+          }}
+        />
+      </div>
     </div>
   );
 };

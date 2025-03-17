@@ -132,6 +132,10 @@ const App = () => {
     newSocket.on('visualization_response', (data) => {
       console.log('Received visualization data:', data);
       setVisualizationData(data);
+      
+      // Make visualization data available globally for the RealtimeAudioPlayer
+      window.visualizationData = data;
+      
       setIsLoading(false);
     });
 
@@ -459,28 +463,134 @@ const App = () => {
   };
 
   // Handle doubt submission
-  const handleDoubtSubmit = (doubtText) => {
+  const handleDoubtSubmit = async (doubtText, currentState = {}) => {
     if (!socket || !doubtText.trim() || !selectedTopic) return;
     
     setIsLoading(true);
     setDoubtResponse(null);
     setDoubt(doubtText);
     
-    console.log('Submitting doubt:', doubtText);
-    socket.emit('doubt', {
-      topic: selectedTopic,
-      doubt: doubtText,
-      current_time: currentTime,
-      current_state: {
-        highlighted_elements: highlightedElements
-      }
-    });
+    console.log('Submitting doubt:', doubtText, 'Current state:', currentState);
     
-    // Ensure we have visualization data for the selected topic
-    if (!visualizationData && selectedTopic) {
-      console.log('Requesting visualization data for topic:', selectedTopic);
-      socket.emit('visualization', { topic: selectedTopic });
-    }
+    // Create a promise to handle the socket response
+    return new Promise((resolve, reject) => {
+      // Track if the promise has been resolved or rejected
+      let isResolved = false;
+      
+      // Set up a one-time event listener for the WebRTC session start
+      const onWebRTCSessionStart = (data) => {
+        console.log('WebRTC session start received:', data);
+        
+        if (isResolved) {
+          console.log('Promise already resolved, ignoring WebRTC session start');
+          return;
+        }
+        
+        isResolved = true;
+        
+        // Set the realtime session state to trigger the RealtimeAudioPlayer
+        setRealtimeSession({
+          sessionId: data.sessionId || Date.now().toString(), // Fallback sessionId if none provided
+          topic: data.topic || selectedTopic,
+          doubt: data.doubt || doubtText,
+          visualizationData: data.visualizationData || visualizationData
+        });
+        
+        // Resolve the promise with the session data
+        resolve(data);
+        
+        // Remove the event listener
+        socket.off('start_webrtc_session', onWebRTCSessionStart);
+        
+        // We're no longer loading since we're transitioning to WebRTC
+        setIsLoading(false);
+      };
+      
+      // Set up a one-time event listener for the doubt response (fallback)
+      const onDoubtResponse = (data) => {
+        console.log('Received doubt response:', data);
+        
+        if (isResolved) {
+          console.log('Promise already resolved, ignoring doubt response');
+          return;
+        }
+        
+        isResolved = true;
+        
+        setDoubtResponse(data);
+        setIsLoading(false);
+        
+        // Process highlights if available
+        if (data.highlights && Array.isArray(data.highlights)) {
+          setHighlightedElements(data.highlights);
+        }
+        
+        // Resolve the promise with the response data
+        resolve(data);
+        
+        // Remove the event listeners
+        socket.off('doubt_response', onDoubtResponse);
+        socket.off('start_webrtc_session', onWebRTCSessionStart);
+      };
+      
+      // Set up a one-time event listener for errors
+      const onError = (error) => {
+        console.error('Socket error:', error);
+        
+        if (isResolved) {
+          console.log('Promise already resolved, ignoring error');
+          return;
+        }
+        
+        isResolved = true;
+        
+        setError(`Error: ${error.message || 'Unknown error'}`);
+        setIsLoading(false);
+        
+        // Reject the promise with the error
+        reject(error);
+        
+        // Remove the event listeners
+        socket.off('doubt_response', onDoubtResponse);
+        socket.off('start_webrtc_session', onWebRTCSessionStart);
+        socket.off('error', onError);
+      };
+      
+      // Add the event listeners
+      socket.once('start_webrtc_session', onWebRTCSessionStart);
+      socket.once('doubt_response', onDoubtResponse);
+      socket.once('error', onError);
+      
+      // Emit the doubt event
+      socket.emit('doubt', {
+        topic: selectedTopic,
+        doubt: doubtText,
+        current_time: currentState.currentTime || currentTime,
+        current_state: {
+          highlighted_elements: currentState.highlightedElements || highlightedElements,
+          is_original_narration: currentState.isOriginalNarration !== undefined 
+            ? currentState.isOriginalNarration 
+            : true
+        },
+        use_webrtc: true // Add a flag to indicate we want to use WebRTC
+      });
+      
+      // Set a timeout to reject the promise if no response is received
+      setTimeout(() => {
+        if (!isResolved) {
+          isResolved = true;
+          
+          console.log('Timeout waiting for response, removing event listeners');
+          socket.off('doubt_response', onDoubtResponse);
+          socket.off('start_webrtc_session', onWebRTCSessionStart);
+          socket.off('error', onError);
+          
+          reject(new Error('Timeout waiting for response'));
+          setIsLoading(false);
+          setError('Timeout waiting for response. Please try again.');
+        }
+      }, 15000); // 15 second timeout (reduced from 30 seconds)
+    });
   };
 
   const handlePlayAudio = () => {
@@ -632,17 +742,39 @@ const App = () => {
   }, [socket, visualizationData]);
 
   // Add a function to handle the completion of the narration
-  const handleNarrationComplete = (highlightedNodes) => {
-    console.log('Narration complete, returning to visualization view');
-    setRealtimeSession(null);
+  const handleNarrationComplete = (highlightedNodes, isComplete = true) => {
+    console.log('Received highlighted nodes:', highlightedNodes, 'isComplete:', isComplete);
     
     // Update highlighted elements if provided
     if (highlightedNodes && highlightedNodes.length > 0) {
       console.log('Setting highlighted nodes:', highlightedNodes);
-      setHighlightedElements(highlightedNodes);
+      
+      // Force a re-render by creating a new array
+      const newHighlights = [...highlightedNodes];
+      
+      // Log the current and new highlights for debugging
+      console.log('Current highlights:', highlightedElements);
+      console.log('New highlights:', newHighlights);
+      
+      // Update the state with the new highlights
+      setHighlightedElements(newHighlights);
+      
+      // Force a re-render of the visualization component
+      // by updating currentTime even if we're not in a realtime session
+      setCurrentTime(() => {
+        console.log('Updating currentTime to force re-render');
+        const newTime = Date.now();
+        console.log('New currentTime:', newTime);
+        return newTime; // Use current timestamp to ensure a change
+      });
     } else {
-      // Reset highlighted elements
-      setHighlightedElements([]);
+      console.log('No highlighted nodes provided');
+    }
+    
+    // Only close the session if isComplete is true
+    if (isComplete) {
+      console.log('Narration complete, returning to visualization view');
+      setRealtimeSession(null);
     }
   };
 
@@ -692,6 +824,7 @@ const App = () => {
                 doubt={realtimeSession.doubt}
                 sessionId={realtimeSession.sessionId}
                 onComplete={handleNarrationComplete}
+                visualizationData={visualizationData}
               />
             </div>
           </>

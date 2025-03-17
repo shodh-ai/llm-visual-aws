@@ -154,7 +154,8 @@ header h1 {
 }
 
 .narration .highlighted {
-  background-color: #fbd38d;
+  background-color: #feb2b2;
+  color: #c53030;
   padding: 0 2px;
   border-radius: 2px;
 }
@@ -303,7 +304,7 @@ header h1 {
 /* Highlighted elements in visualization */
 .node.highlighted rect,
 .node.highlighted polygon {
-  stroke: #f6ad55 !important;
+  stroke: #f56565 !important;
   stroke-width: 4px !important;
   animation: pulse 1.5s infinite;
 }

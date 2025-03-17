@@ -50,12 +50,15 @@ app.get('/token', async (req, res) => {
       return res.status(400).json({ error: 'Topic is required' });
     }
     
+    console.log(`Token request for topic: ${topic}, doubt: ${doubt || 'none'}`);
+    
     // Get visualization data for context
     let visualizationData = null;
     const cacheKey = `viz_${topic}`;
     
     if (visualizationCache.has(cacheKey)) {
       visualizationData = visualizationCache.get(cacheKey);
+      console.log('Using cached visualization data for token');
     } else {
       // Fetch visualization data if not in cache
       try {
@@ -72,9 +75,11 @@ app.get('/token', async (req, res) => {
               try {
                 visualizationData = JSON.parse(vizDataStr);
                 visualizationCache.set(cacheKey, visualizationData);
+                console.log('Generated and cached visualization data for token');
                 resolve();
               } catch (error) {
-                reject(new Error('Failed to parse visualization data'));
+                console.error('Error parsing visualization data:', error);
+                reject(error);
               }
             } else {
               reject(new Error('Failed to generate visualization data'));
@@ -86,9 +91,15 @@ app.get('/token', async (req, res) => {
           });
         });
       } catch (error) {
-        console.error('Error fetching visualization data:', error);
+        console.error('Error fetching visualization data for token:', error);
         // Continue without visualization data
       }
+    }
+    
+    // Verify we have a valid API key
+    if (!process.env.OPENAI_API_KEY || !process.env.OPENAI_API_KEY.startsWith('sk-')) {
+      console.error('Invalid or missing OpenAI API key');
+      return res.status(500).json({ error: 'Invalid or missing OpenAI API key' });
     }
     
     // Return the API key as an ephemeral token along with visualization context
@@ -98,11 +109,12 @@ app.get('/token', async (req, res) => {
       },
       visualization_data: visualizationData,
       topic: topic,
-      doubt: doubt
+      doubt: doubt,
+      sessionId: uuidv4() // Include a session ID
     });
   } catch (error) {
     console.error('Error generating token:', error);
-    return res.status(500).json({ error: 'Failed to generate token' });
+    return res.status(500).json({ error: 'Failed to generate token: ' + error.message });
   }
 });
 
@@ -213,16 +225,96 @@ io.on('connection', (socket) => {
         }
       }
       
-      // Send visualization data to client if available
-      if (visualizationData) {
-        socket.emit('visualization_response', visualizationData);
+      // Check if the client wants to use WebRTC
+      if (data.use_webrtc) {
+        console.log('Client requested WebRTC session');
+        
+        // Signal the client to start a WebRTC session
+        socket.emit('start_webrtc_session', {
+          sessionId,
+          topic: data.topic,
+          doubt: data.doubt,
+          visualizationData
+        });
+        
+        return; // Exit early as we're using WebRTC
       }
       
-      // Signal the client to start a WebRTC session
-      socket.emit('start_webrtc_session', {
-        sessionId,
+      // If not using WebRTC, process the doubt using Python
+      const currentState = data.current_state || {};
+      const currentTime = data.current_time || 0;
+      
+      // Convert the doubt request to JSON for the Python process
+      const doubtRequest = {
         topic: data.topic,
-        doubt: data.doubt
+        doubt: data.doubt,
+        current_state: currentState,
+        current_time: currentTime
+      };
+      
+      // Spawn Python process to handle the doubt
+      const pythonProcess = spawn('python', [
+        'app.py', 
+        '--doubt', 
+        '--topic', data.topic
+      ]);
+      
+      // Send the doubt request to the Python process
+      pythonProcess.stdin.write(JSON.stringify(doubtRequest));
+      pythonProcess.stdin.end();
+      
+      let responseData = '';
+      
+      pythonProcess.stdout.on('data', (chunk) => {
+        responseData += chunk.toString();
+      });
+      
+      pythonProcess.stderr.on('data', (data) => {
+        console.error(`Python error: ${data}`);
+      });
+      
+      pythonProcess.on('close', async (code) => {
+        console.log(`Python doubt process exited with code ${code}`);
+        
+        if (code === 0 && responseData) {
+          try {
+            const parsedResponse = JSON.parse(responseData);
+            
+            // Process the response
+            const doubtResponse = {
+              narration: parsedResponse.narration || "I couldn't generate a response for your question.",
+              narration_timestamps: parsedResponse.narration_timestamps || [],
+              highlights: parsedResponse.highlights || []
+            };
+            
+            // Generate audio for the narration if needed
+            if (doubtResponse.narration && !parsedResponse.audio_url) {
+              try {
+                // Use a text-to-speech service to generate audio
+                // This is a placeholder - implement your preferred TTS solution
+                console.log('Generating audio for doubt response');
+                
+                // For now, we'll just send the response without audio
+                socket.emit('doubt_response', doubtResponse);
+              } catch (audioError) {
+                console.error('Error generating audio:', audioError);
+                socket.emit('doubt_response', doubtResponse);
+              }
+            } else {
+              // Send the response with the provided audio URL
+              if (parsedResponse.audio_url) {
+                doubtResponse.audio_url = parsedResponse.audio_url;
+              }
+              
+              socket.emit('doubt_response', doubtResponse);
+            }
+          } catch (error) {
+            console.error('Error parsing doubt response:', error);
+            socket.emit('error', { message: 'Failed to parse doubt response' });
+          }
+        } else {
+          socket.emit('error', { message: 'Failed to process doubt' });
+        }
       });
     } catch (error) {
       console.error('Error handling doubt request:', error);
