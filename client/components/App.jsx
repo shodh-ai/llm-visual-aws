@@ -2,11 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import VisualizationPanel from './VisualizationPanel';
 import ControlPanel from './ControlPanel';
-import ResponsePanel from './ResponsePanel';
 import DoubtBox from './DoubtBox';
 import '../styles/streaming.css';
-import AudioPlayer from './AudioPlayer';
-import RealtimeAudioPlayer from './RealtimeAudioPlayer';
+import RealtimeAudioPlayer from "./RealTimeAudioPlayer"
 
 // Import visualization components
 import ERVisualization from './ERVisualization';
@@ -75,30 +73,11 @@ const App = () => {
   const [visualizationData, setVisualizationData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [response, setResponse] = useState('');
-  const [audioUrl, setAudioUrl] = useState(null);
-  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [highlightedElements, setHighlightedElements] = useState([]);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [doubt, setDoubt] = useState('');
   const [doubtResponse, setDoubtResponse] = useState(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   
-  const audioRef = useRef(null);
-  const audioChunks = useRef([]);
-  const animationFrameRef = useRef(null);
-  const startTimeRef = useRef(null);
-  
-  const [audioQueue, setAudioQueue] = useState([]);
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const currentAudioRef = useRef(null);
-  
-  // Add state for timing chunks
-  const [timingChunks, setTimingChunks] = useState([]);
-  const [narrationTimestamps, setNarrationTimestamps] = useState([]);
-  
-  // Add state for realtime session
   const [realtimeSession, setRealtimeSession] = useState(null);
   
   // Initialize Socket.IO connection
@@ -137,28 +116,9 @@ const App = () => {
       window.visualizationData = data;
       
       setIsLoading(false);
-    });
-
-    newSocket.on('audio_chunk', (chunk) => {
-      audioChunks.current.push(chunk);
-    });
-
-    newSocket.on('audio_complete', (data) => {
-      const audioBlob = new Blob(audioChunks.current, { type: 'audio/mpeg' });
-      const url = URL.createObjectURL(audioBlob);
-      setAudioUrl(url);
-      audioChunks.current = [];
       
-      if (data.word_timings) {
-        // Process word timings for highlighting
-        console.log('Word timings received:', data.word_timings);
-      }
-    });
-
-    newSocket.on('doubt_response', (data) => {
-      console.log('Received doubt response:', data);
-      setDoubtResponse(data);
-      setIsLoading(false);
+      // Automatically start a WebRTC session for the topic
+      initiateWebRTCSession(data.topic || selectedTopic);
     });
 
     newSocket.on('error', (err) => {
@@ -174,151 +134,14 @@ const App = () => {
       if (newSocket) {
         newSocket.disconnect();
       }
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
     };
   }, [isInitialLoad]);
-
-  // Add a useEffect to handle timing chunks
-  useEffect(() => {
-    if (!socket) return;
-    
-    // Handle timing chunks
-    socket.on('timing_chunk', (data) => {
-      console.log(`Received timing chunk ${data.chunk_index + 1} of ${data.total_chunks}`);
-      
-      // Add the chunk to the state
-      setTimingChunks(prev => {
-        const newChunks = [...prev];
-        newChunks[data.chunk_index] = data.timestamps;
-        return newChunks;
-      });
-    });
-    
-    return () => {
-      socket.off('timing_chunk');
-    };
-  }, [socket]);
-  
-  // Add a useEffect to assemble timing chunks when they're all received
-  useEffect(() => {
-    // Check if we have all chunks
-    if (timingChunks.length > 0 && !timingChunks.includes(undefined)) {
-      // Flatten the chunks into a single array
-      const allTimestamps = timingChunks.flat();
-      console.log(`Assembled ${allTimestamps.length} timestamps from ${timingChunks.length} chunks`);
-      
-      // Set the narration timestamps
-      setNarrationTimestamps(allTimestamps);
-      
-      // Clear the chunks
-      setTimingChunks([]);
-    }
-  }, [timingChunks]);
-  
-  // Update the useEffect that handles highlights to use narrationTimestamps
-  useEffect(() => {
-    if (narrationTimestamps.length > 0 && isPlaying) {
-      const highlights = narrationTimestamps.filter(
-        timing => timing.start_time <= currentTime && timing.end_time >= currentTime
-      ).map(timing => timing.node_id).flat().filter(Boolean);
-      
-      setHighlightedElements(highlights);
-    }
-  }, [currentTime, narrationTimestamps, isPlaying]);
-
-  // Auto-play narration when visualization data is loaded
-  useEffect(() => {
-    if (visualizationData && !isPlaying && audioRef.current) {
-      // Short delay to ensure everything is ready
-      const timer = setTimeout(() => {
-        handlePlayPause();
-      }, 500);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [visualizationData]);
-
-  // Add a new useEffect for handling audio queue
-  useEffect(() => {
-    if (audioQueue.length > 0 && !isPlayingAudio) {
-      playNextAudio();
-    }
-  }, [audioQueue, isPlayingAudio]);
-
-  // Function to play the next audio in the queue
-  const playNextAudio = () => {
-    if (audioQueue.length === 0) {
-      setIsPlayingAudio(false);
-      return;
-    }
-    
-    setIsPlayingAudio(true);
-    
-    const nextAudio = audioQueue[0];
-    const audioBlob = new Blob([nextAudio], { type: 'audio/mpeg' });
-    const audioUrl = URL.createObjectURL(audioBlob);
-    
-    // Create a new audio element
-    const audio = new Audio(audioUrl);
-    currentAudioRef.current = audio;
-    
-    // Set up event listeners
-    audio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
-      setAudioQueue(prev => prev.slice(1));
-      setIsPlayingAudio(false);
-    };
-    
-    audio.onerror = (e) => {
-      console.error('Audio playback error:', e);
-      URL.revokeObjectURL(audioUrl);
-      setAudioQueue(prev => prev.slice(1));
-      setIsPlayingAudio(false);
-    };
-    
-    // Play the audio
-    audio.play().catch(err => {
-      console.error('Failed to play audio:', err);
-      setIsPlayingAudio(false);
-    });
-  };
-
-  // Update the socket event handler for audio chunks
-  useEffect(() => {
-    if (!socket) return;
-    
-    // Handle audio chunks - we'll let AudioPlayer handle this now
-    socket.on('audio_chunk', (data) => {
-      console.log('App received audio chunk of size:', data.audio_data ? data.audio_data.length : 'unknown');
-      // We don't need to handle this here anymore since AudioPlayer will handle it
-      // setAudioQueue(prev => [...prev, data.audio_data]);
-    });
-    
-    return () => {
-      socket.off('audio_chunk');
-    };
-  }, [socket]);
 
   const handleTopicChange = (topic) => {
     setSelectedTopic(topic);
     setDoubtResponse(null);
     
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-    
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-    
-    setIsPlaying(false);
-    setCurrentTime(0);
+    // Reset highlighted elements
     setHighlightedElements([]);
     
     // Immediately load a placeholder visualization while waiting for server
@@ -462,200 +285,52 @@ const App = () => {
     socket.emit('visualization', { topic });
   };
 
-  // Handle doubt submission
+  // New function to initiate WebRTC session
+  const initiateWebRTCSession = (topic, doubtText = '') => {
+    if (!socket || !isConnected) {
+      setError('Not connected to server');
+      return;
+    }
+    
+    console.log('Initiating WebRTC session for topic:', topic);
+    
+    // Create a session ID
+    const sessionId = Date.now().toString();
+    
+    // Set up the realtime session
+    setRealtimeSession({
+      sessionId: sessionId,
+      topic: topic,
+      doubt: doubtText,
+      visualizationData: visualizationData
+    });
+    
+    // Notify the server to start a WebRTC session
+    socket.emit('start_webrtc_session', {
+      sessionId: sessionId,
+      topic: topic,
+      doubt: doubtText
+    });
+  };
+
+  // Handle doubt submission - simplified to always use WebRTC
   const handleDoubtSubmit = async (doubtText, currentState = {}) => {
     if (!socket || !doubtText.trim() || !selectedTopic) return;
     
     setIsLoading(true);
-    setDoubtResponse(null);
     setDoubt(doubtText);
     
-    console.log('Submitting doubt:', doubtText, 'Current state:', currentState);
+    console.log('Submitting doubt via WebRTC:', doubtText);
     
-    // Create a promise to handle the socket response
-    return new Promise((resolve, reject) => {
-      // Track if the promise has been resolved or rejected
-      let isResolved = false;
-      
-      // Set up a one-time event listener for the WebRTC session start
-      const onWebRTCSessionStart = (data) => {
-        console.log('WebRTC session start received:', data);
-        
-        if (isResolved) {
-          console.log('Promise already resolved, ignoring WebRTC session start');
-          return;
-        }
-        
-        isResolved = true;
-        
-        // Set the realtime session state to trigger the RealtimeAudioPlayer
-        setRealtimeSession({
-          sessionId: data.sessionId || Date.now().toString(), // Fallback sessionId if none provided
-          topic: data.topic || selectedTopic,
-          doubt: data.doubt || doubtText,
-          visualizationData: data.visualizationData || visualizationData
-        });
-        
-        // Resolve the promise with the session data
-        resolve(data);
-        
-        // Remove the event listener
-        socket.off('start_webrtc_session', onWebRTCSessionStart);
-        
-        // We're no longer loading since we're transitioning to WebRTC
-        setIsLoading(false);
-      };
-      
-      // Set up a one-time event listener for the doubt response (fallback)
-      const onDoubtResponse = (data) => {
-        console.log('Received doubt response:', data);
-        
-        if (isResolved) {
-          console.log('Promise already resolved, ignoring doubt response');
-          return;
-        }
-        
-        isResolved = true;
-        
-        setDoubtResponse(data);
-        setIsLoading(false);
-        
-        // Process highlights if available
-        if (data.highlights && Array.isArray(data.highlights)) {
-          setHighlightedElements(data.highlights);
-        }
-        
-        // Resolve the promise with the response data
-        resolve(data);
-        
-        // Remove the event listeners
-        socket.off('doubt_response', onDoubtResponse);
-        socket.off('start_webrtc_session', onWebRTCSessionStart);
-      };
-      
-      // Set up a one-time event listener for errors
-      const onError = (error) => {
-        console.error('Socket error:', error);
-        
-        if (isResolved) {
-          console.log('Promise already resolved, ignoring error');
-          return;
-        }
-        
-        isResolved = true;
-        
-        setError(`Error: ${error.message || 'Unknown error'}`);
-        setIsLoading(false);
-        
-        // Reject the promise with the error
-        reject(error);
-        
-        // Remove the event listeners
-        socket.off('doubt_response', onDoubtResponse);
-        socket.off('start_webrtc_session', onWebRTCSessionStart);
-        socket.off('error', onError);
-      };
-      
-      // Add the event listeners
-      socket.once('start_webrtc_session', onWebRTCSessionStart);
-      socket.once('doubt_response', onDoubtResponse);
-      socket.once('error', onError);
-      
-      // Emit the doubt event
-      socket.emit('doubt', {
-        topic: selectedTopic,
-        doubt: doubtText,
-        current_time: currentState.currentTime || currentTime,
-        current_state: {
-          highlighted_elements: currentState.highlightedElements || highlightedElements,
-          is_original_narration: currentState.isOriginalNarration !== undefined 
-            ? currentState.isOriginalNarration 
-            : true
-        },
-        use_webrtc: true // Add a flag to indicate we want to use WebRTC
-      });
-      
-      // Set a timeout to reject the promise if no response is received
-      setTimeout(() => {
-        if (!isResolved) {
-          isResolved = true;
-          
-          console.log('Timeout waiting for response, removing event listeners');
-          socket.off('doubt_response', onDoubtResponse);
-          socket.off('start_webrtc_session', onWebRTCSessionStart);
-          socket.off('error', onError);
-          
-          reject(new Error('Timeout waiting for response'));
-          setIsLoading(false);
-          setError('Timeout waiting for response. Please try again.');
-        }
-      }, 15000); // 15 second timeout (reduced from 30 seconds)
+    // Initiate a WebRTC session with the doubt
+    initiateWebRTCSession(selectedTopic, doubtText);
+    
+    // Return a resolved promise since we're not waiting for a response
+    return Promise.resolve({
+      sessionId: realtimeSession?.sessionId || Date.now().toString(),
+      topic: selectedTopic,
+      doubt: doubtText
     });
-  };
-
-  const handlePlayAudio = () => {
-    if (!audioUrl || !audioRef.current) return;
-    
-    if (isAudioPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play();
-    }
-    
-    setIsAudioPlaying(!isAudioPlaying);
-  };
-
-  const handlePlayPause = () => {
-    if (!visualizationData) return;
-    
-    if (isPlaying) {
-      cancelAnimationFrame(animationFrameRef.current);
-      setIsPlaying(false);
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-    } else {
-      // Reset to beginning if at the end
-      if (audioRef.current && audioRef.current.ended) {
-        audioRef.current.currentTime = 0;
-        setCurrentTime(0);
-      }
-      
-      startTimeRef.current = performance.now() - currentTime;
-      animate();
-      setIsPlaying(true);
-      
-      if (audioRef.current) {
-        audioRef.current.currentTime = currentTime / 1000;
-        audioRef.current.play().catch(err => {
-          console.error("Audio playback error:", err);
-          // Continue with animation even if audio fails
-          setIsAudioPlaying(false);
-        });
-      }
-    }
-  };
-
-  const animate = () => {
-    const now = performance.now();
-    const newTime = now - startTimeRef.current;
-    
-    setCurrentTime(newTime);
-    
-    // Check if animation should continue
-    if (visualizationData?.narration_timestamps) {
-      const lastTimestamp = visualizationData.narration_timestamps[
-        visualizationData.narration_timestamps.length - 1
-      ]?.end_time || 0;
-      
-      if (newTime < lastTimestamp) {
-        animationFrameRef.current = requestAnimationFrame(animate);
-      } else {
-        setIsPlaying(false);
-      }
-    } else {
-      animationFrameRef.current = requestAnimationFrame(animate);
-    }
   };
 
   const renderVisualization = () => {
@@ -671,38 +346,10 @@ const App = () => {
       <VisualizationComponent
         data={visualizationData}
         highlightedElements={highlightedElements}
-        currentTime={currentTime}
+        currentTime={Date.now()} // Just use current time as a placeholder
       />
     );
   };
-
-  // Add a new useEffect hook to handle streaming responses
-  useEffect(() => {
-    if (!socket) return;
-
-    // Handle streaming doubt chunks
-    socket.on('doubt_chunk', (data) => {
-      console.log('Received doubt chunk:', data);
-      // The DoubtBox component will handle displaying the chunks
-    });
-
-    // Handle completion of streaming
-    socket.on('doubt_complete', (data) => {
-      console.log('Doubt response complete:', data);
-      setDoubtResponse(data);
-      setIsLoading(false);
-      
-      // Update highlighted elements if provided
-      if (data.highlights && data.highlights.length > 0) {
-        setHighlightedElements(data.highlights);
-      }
-    });
-
-    return () => {
-      socket.off('doubt_chunk');
-      socket.off('doubt_complete');
-    };
-  }, [socket]);
 
   // Update the socket event handler for realtime session
   useEffect(() => {
@@ -748,33 +395,14 @@ const App = () => {
     // Update highlighted elements if provided
     if (highlightedNodes && highlightedNodes.length > 0) {
       console.log('Setting highlighted nodes:', highlightedNodes);
-      
-      // Force a re-render by creating a new array
-      const newHighlights = [...highlightedNodes];
-      
-      // Log the current and new highlights for debugging
-      console.log('Current highlights:', highlightedElements);
-      console.log('New highlights:', newHighlights);
-      
-      // Update the state with the new highlights
-      setHighlightedElements(newHighlights);
-      
-      // Force a re-render of the visualization component
-      // by updating currentTime even if we're not in a realtime session
-      setCurrentTime(() => {
-        console.log('Updating currentTime to force re-render');
-        const newTime = Date.now();
-        console.log('New currentTime:', newTime);
-        return newTime; // Use current timestamp to ensure a change
-      });
-    } else {
-      console.log('No highlighted nodes provided');
+      setHighlightedElements([...highlightedNodes]);
     }
     
-    // Only close the session if isComplete is true
+    // Only close the session if isComplete is true and we want to end the session
     if (isComplete) {
-      console.log('Narration complete, returning to visualization view');
-      setRealtimeSession(null);
+      console.log('Narration complete, but keeping WebRTC session active');
+      // We don't reset the session here to keep it active
+      // setRealtimeSession(null);
     }
   };
 
@@ -796,73 +424,51 @@ const App = () => {
         selectedTopic={selectedTopic}
         onTopicChange={handleTopicChange}
         isLoading={isLoading}
-        isPlaying={isPlaying}
-        onPlayPause={handlePlayPause}
+        isPlaying={!!realtimeSession} // Use realtimeSession as a proxy for isPlaying
+        onPlayPause={() => {
+          // If we have a session, end it; otherwise start one
+          if (realtimeSession) {
+            setRealtimeSession(null);
+          } else if (selectedTopic) {
+            initiateWebRTCSession(selectedTopic);
+          }
+        }}
         hasVisualization={!!visualizationData}
       />
       
       <div className="main-content">
+        <div className="visualization-container">
+          <VisualizationPanel>
+            {error ? (
+              <div className="error">{error}</div>
+            ) : (
+              renderVisualization()
+            )}
+            {isLoading && (
+              <div className="loading-overlay">
+                <div className="loading-spinner"></div>
+              </div>
+            )}
+          </VisualizationPanel>
+        </div>
+        
         {realtimeSession ? (
-          <>
-            <div className="visualization-container">
-              <VisualizationPanel>
-                {error ? (
-                  <div className="error">{error}</div>
-                ) : (
-                  renderVisualization()
-                )}
-                {isLoading && (
-                  <div className="loading-overlay">
-                    <div className="loading-spinner"></div>
-                  </div>
-                )}
-              </VisualizationPanel>
-            </div>
-            <div className="realtime-container">
-              <RealtimeAudioPlayer 
-                topic={realtimeSession.topic}
-                doubt={realtimeSession.doubt}
-                sessionId={realtimeSession.sessionId}
-                onComplete={handleNarrationComplete}
-                visualizationData={visualizationData}
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <VisualizationPanel>
-              {error ? (
-                <div className="error">{error}</div>
-              ) : (
-                renderVisualization()
-              )}
-              {isLoading && (
-                <div className="loading-overlay">
-                  <div className="loading-spinner"></div>
-                </div>
-              )}
-            </VisualizationPanel>
-            
-            <ResponsePanel
-              response={visualizationData?.narration || response}
-              audioUrl={audioUrl}
-              onPlayAudio={handlePlayAudio}
-              isAudioPlaying={isAudioPlaying}
-              audioRef={audioRef}
-              currentTime={currentTime}
-              highlightedWord={
-                narrationTimestamps.length > 0 ?
-                  narrationTimestamps.find(
-                    timing => timing.start_time <= currentTime && timing.end_time >= currentTime
-                  )?.word || '' :
-                  visualizationData?.narration_timestamps?.find(
-                    timing => timing.start_time <= currentTime && timing.end_time >= currentTime
-                  )?.word || ''
-              }
+          <div className="realtime-container">
+            <RealtimeAudioPlayer 
+              topic={realtimeSession.topic}
+              doubt={realtimeSession.doubt}
+              sessionId={realtimeSession.sessionId}
+              onComplete={handleNarrationComplete}
+              visualizationData={visualizationData}
             />
-            
-            <AudioPlayer socket={socket} />
-          </>
+          </div>
+        ) : (
+          <div className="placeholder-message">
+            <h3>Interactive Database Learning</h3>
+            <p>Select a topic from the dropdown above to start exploring.</p>
+            <p>The visualization will appear with real-time audio explanation.</p>
+            <p>You can ask questions about the topic using the doubt box below.</p>
+          </div>
         )}
       </div>
       
@@ -872,20 +478,6 @@ const App = () => {
         doubtResponse={doubtResponse}
         socket={socket}
       />
-      
-      {audioUrl && (
-        <audio
-          ref={audioRef}
-          src={audioUrl}
-          onPlay={() => setIsAudioPlaying(true)}
-          onPause={() => setIsAudioPlaying(false)}
-          onEnded={() => {
-            setIsAudioPlaying(false);
-            setIsPlaying(false);
-          }}
-          style={{ display: 'none' }}
-        />
-      )}
     </div>
   );
 };

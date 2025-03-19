@@ -125,20 +125,8 @@ const RealtimeAudioPlayer = ({ topic, doubt, sessionId, onComplete, visualizatio
   const addDebugInfo = (message) => {
     console.log(`[RealtimeAudioPlayer] ${message}`);
     if (mountedRef.current) {
-      setDebugInfo(prev => [...prev, `${new Date().toISOString().substr(11, 8)}: ${message}`]);
+    setDebugInfo(prev => [...prev, `${new Date().toISOString().substr(11, 8)}: ${message}`]);
     }
-  };
-  
-  // DEPRECATED: This function is no longer used - we rely solely on audio-based highlighting
-  const processTextForNodeIds = (text) => {
-    console.log('HIGHLIGHT DEBUG: processTextForNodeIds is deprecated - using audio-based highlighting only');
-    // This function is intentionally empty as we've moved to audio-based highlighting
-  };
-  
-  // DEPRECATED: This function is no longer used - we rely solely on audio-based highlighting
-  const processRecentTextForNodeIds = (text) => {
-    console.log('HIGHLIGHT DEBUG: processRecentTextForNodeIds is deprecated - using audio-based highlighting only');
-    // This function is intentionally empty as we've moved to audio-based highlighting
   };
   
   // Function to clear highlights after a delay
@@ -481,19 +469,19 @@ const RealtimeAudioPlayer = ({ topic, doubt, sessionId, onComplete, visualizatio
         }
       } else {
         addDebugInfo('No microphone stream available, trying to get one now');
-        try {
-          const ms = await navigator.mediaDevices.getUserMedia({
-            audio: true
-          });
-          microphoneStreamRef.current = ms;
+      try {
+        const ms = await navigator.mediaDevices.getUserMedia({
+          audio: true
+        });
+        microphoneStreamRef.current = ms;
           peerConnectionRef.current.addTrack(ms.getTracks()[0], ms);
           setMicrophoneAccess(true);
-          addDebugInfo('Added microphone track to peer connection');
-        } catch (micError) {
-          console.error('Microphone access error:', micError);
-          addDebugInfo(`Microphone error: ${micError.message}`);
+        addDebugInfo('Added microphone track to peer connection');
+      } catch (micError) {
+        console.error('Microphone access error:', micError);
+        addDebugInfo(`Microphone error: ${micError.message}`);
           setMicrophoneAccess(false);
-          // Continue without microphone
+        // Continue without microphone
         }
       }
       
@@ -747,37 +735,37 @@ const RealtimeAudioPlayer = ({ topic, doubt, sessionId, onComplete, visualizatio
           addDebugInfo('Component unmounted or session stopping after ICE gathering');
           return;
         }
-        
-        const openaiBaseUrl = 'https://api.openai.com/v1/realtime';
-        const model = 'gpt-4o-realtime-preview-2024-12-17';
+      
+      const openaiBaseUrl = 'https://api.openai.com/v1/realtime';
+      const model = 'gpt-4o-realtime-preview-2024-12-17';
         
         // Get the current local description which may have been updated with ICE candidates
         const currentLocalDescription = peerConnectionRef.current.localDescription;
-        
-        addDebugInfo('Sending SDP offer to OpenAI');
-        const sdpResponse = await fetch(`${openaiBaseUrl}?model=${model}`, {
-          method: 'POST',
+      
+      addDebugInfo('Sending SDP offer to OpenAI');
+      const sdpResponse = await fetch(`${openaiBaseUrl}?model=${model}`, {
+        method: 'POST',
           body: currentLocalDescription.sdp,
-          headers: {
-            'Authorization': `Bearer ${EPHEMERAL_KEY}`,
-            'Content-Type': 'application/sdp'
-          }
-        });
-        
-        if (!sdpResponse.ok) {
-          const errorText = await sdpResponse.text();
-          addDebugInfo(`SDP negotiation failed with status ${sdpResponse.status}: ${errorText}`);
-          throw new Error(`SDP negotiation failed: ${sdpResponse.status} ${sdpResponse.statusText}`);
+        headers: {
+          'Authorization': `Bearer ${EPHEMERAL_KEY}`,
+          'Content-Type': 'application/sdp'
         }
-        
-        const sdpAnswer = await sdpResponse.text();
-        addDebugInfo(`Received SDP answer from OpenAI (length: ${sdpAnswer.length})`);
-        
-        if (!sdpAnswer || sdpAnswer.trim() === '') {
-          addDebugInfo('Received empty SDP answer from OpenAI');
-          throw new Error('Received empty SDP answer from OpenAI');
-        }
-        
+      });
+      
+      if (!sdpResponse.ok) {
+        const errorText = await sdpResponse.text();
+        addDebugInfo(`SDP negotiation failed with status ${sdpResponse.status}: ${errorText}`);
+        throw new Error(`SDP negotiation failed: ${sdpResponse.status} ${sdpResponse.statusText}`);
+      }
+      
+      const sdpAnswer = await sdpResponse.text();
+      addDebugInfo(`Received SDP answer from OpenAI (length: ${sdpAnswer.length})`);
+      
+      if (!sdpAnswer || sdpAnswer.trim() === '') {
+        addDebugInfo('Received empty SDP answer from OpenAI');
+        throw new Error('Received empty SDP answer from OpenAI');
+      }
+      
         // Check if component is still mounted and session is not being stopped
         if (!mountedRef.current || isSessionStopping) {
           addDebugInfo('Component unmounted or session stopping after receiving SDP answer');
@@ -822,7 +810,7 @@ const RealtimeAudioPlayer = ({ topic, doubt, sessionId, onComplete, visualizatio
         // Set remote description
         try {
           await peerConnectionRef.current.setRemoteDescription(answer);
-          addDebugInfo('Set remote description, WebRTC connection established');
+        addDebugInfo('Set remote description, WebRTC connection established');
           setConnectionStatus('Connected to OpenAI');
           setIsConnected(true);
         } catch (innerError) {
@@ -863,13 +851,13 @@ const RealtimeAudioPlayer = ({ topic, doubt, sessionId, onComplete, visualizatio
       
       // Only update state if component is still mounted
       if (mountedRef.current) {
-        setError(`Failed to start session: ${error.message}`);
-        setConnectionStatus('Connection failed');
-        addDebugInfo(`Session error: ${error.message}`);
+      setError(`Failed to start session: ${error.message}`);
+      setConnectionStatus('Connection failed');
+      addDebugInfo(`Session error: ${error.message}`);
         
         // Only call stopSession if we're not already stopping
         if (!isSessionStopping) {
-          stopSession();
+      stopSession();
         }
         
         // If this wasn't a retry and we haven't exceeded max retries, attempt to retry
@@ -903,36 +891,36 @@ const RealtimeAudioPlayer = ({ topic, doubt, sessionId, onComplete, visualizatio
       // Use setTimeout to ensure this runs after any pending state updates
       setTimeout(() => {
         // First, close the data channel if it exists
-        if (dataChannelRef.current) {
-          try {
-            if (dataChannelRef.current.readyState === 'open') {
-              addDebugInfo('Closing data channel');
-              dataChannelRef.current.close();
-            } else {
-              addDebugInfo(`Data channel in state: ${dataChannelRef.current.readyState}, not closing`);
-            }
-          } catch (err) {
-            addDebugInfo(`Error closing data channel: ${err.message}`);
-          }
-          dataChannelRef.current = null;
+    if (dataChannelRef.current) {
+      try {
+        if (dataChannelRef.current.readyState === 'open') {
+          addDebugInfo('Closing data channel');
+          dataChannelRef.current.close();
+        } else {
+          addDebugInfo(`Data channel in state: ${dataChannelRef.current.readyState}, not closing`);
         }
-        
+      } catch (err) {
+        addDebugInfo(`Error closing data channel: ${err.message}`);
+      }
+      dataChannelRef.current = null;
+    }
+    
         // Next, stop all tracks in the microphone stream
-        if (microphoneStreamRef.current) {
-          try {
-            addDebugInfo('Stopping microphone tracks');
-            microphoneStreamRef.current.getTracks().forEach(track => {
-              track.stop();
-            });
-          } catch (err) {
-            addDebugInfo(`Error stopping microphone tracks: ${err.message}`);
-          }
-          microphoneStreamRef.current = null;
-        }
-        
+    if (microphoneStreamRef.current) {
+      try {
+        addDebugInfo('Stopping microphone tracks');
+        microphoneStreamRef.current.getTracks().forEach(track => {
+          track.stop();
+        });
+      } catch (err) {
+        addDebugInfo(`Error stopping microphone tracks: ${err.message}`);
+      }
+      microphoneStreamRef.current = null;
+    }
+    
         // Then, close the peer connection
-        if (peerConnectionRef.current) {
-          try {
+    if (peerConnectionRef.current) {
+      try {
             // Remove all event listeners first
             if (peerConnectionRef.current.oniceconnectionstatechange) {
               peerConnectionRef.current.oniceconnectionstatechange = null;
@@ -954,38 +942,38 @@ const RealtimeAudioPlayer = ({ topic, doubt, sessionId, onComplete, visualizatio
             addDebugInfo(`Closing peer connection (current state: ${peerConnectionRef.current.signalingState})`);
             
             // Close the connection
-            peerConnectionRef.current.close();
-          } catch (err) {
-            addDebugInfo(`Error closing peer connection: ${err.message}`);
-          }
-          peerConnectionRef.current = null;
-        }
-        
-        // Clean up audio element
-        if (audioElementRef.current) {
-          try {
-            if (audioElementRef.current.srcObject) {
-              addDebugInfo('Cleaning up audio element');
+        peerConnectionRef.current.close();
+      } catch (err) {
+        addDebugInfo(`Error closing peer connection: ${err.message}`);
+      }
+      peerConnectionRef.current = null;
+    }
+    
+    // Clean up audio element
+    if (audioElementRef.current) {
+      try {
+        if (audioElementRef.current.srcObject) {
+          addDebugInfo('Cleaning up audio element');
               audioElementRef.current.pause();
-              audioElementRef.current.srcObject = null;
-            }
-          } catch (err) {
-            addDebugInfo(`Error cleaning up audio element: ${err.message}`);
-          }
-          audioElementRef.current = null;
+          audioElementRef.current.srcObject = null;
         }
-        
+      } catch (err) {
+        addDebugInfo(`Error cleaning up audio element: ${err.message}`);
+      }
+      audioElementRef.current = null;
+    }
+    
         // Update state if component is still mounted
         if (mountedRef.current) {
-          setIsConnected(false);
+    setIsConnected(false);
           setIsPlaying(false);
           setText('');
           setHighlightedWord('');
-          setConnectionStatus('Disconnected');
+    setConnectionStatus('Disconnected');
         }
-        
-        // Mark session as no longer in progress
-        sessionInProgressRef.current = false;
+    
+    // Mark session as no longer in progress
+    sessionInProgressRef.current = false;
         
         if (mountedRef.current) {
           setIsSessionStopping(false); // Reset the stopping flag
@@ -1468,8 +1456,8 @@ const RealtimeAudioPlayer = ({ topic, doubt, sessionId, onComplete, visualizatio
     const nextWords = wordTimings.length > 0 
       ? wordTimings.slice(currentWordIndex + 1, currentWordIndex + 5).map(t => t.word).join(' ')
       : '';
-    
-    return (
+  
+  return (
       <div className="speech-position">
         <div className="speech-position-bar">
           <div 
@@ -1725,12 +1713,12 @@ const RealtimeAudioPlayer = ({ topic, doubt, sessionId, onComplete, visualizatio
           </span>
         )}
         
-        <button 
-          className="return-button"
+          <button 
+            className="return-button"
           onClick={handleReturn}
-        >
-          Close AI Response
-        </button>
+          >
+            Close AI Response
+          </button>
         
         {(visualizationData || window.visualizationData) && (
           <>
